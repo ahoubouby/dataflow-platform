@@ -1,0 +1,116 @@
+# ============================================
+# Prometheus Configuration
+# ============================================
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    cluster: 'dataflow-platform'
+    environment: 'local'
+
+# Alertmanager configuration (optional)
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: []
+          # - 'alertmanager:9093'
+
+# Load rules once and periodically evaluate them
+rule_files:
+  # - "alerts/*.yml"
+
+# Scrape configurations
+scrape_configs:
+  # ==========================================
+  # Prometheus self-monitoring
+  # ==========================================
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+        labels:
+          service: 'prometheus'
+
+  # ==========================================
+  # DataFlow Platform Application
+  # ==========================================
+  - job_name: 'dataflow-platform'
+    metrics_path: '/metrics'
+    scrape_interval: 10s
+    static_configs:
+      - targets:
+          # Add your application instances here
+          # Format: 'host.docker.internal:9095' for Docker Desktop
+          # Format: '172.17.0.1:9095' for Docker on Linux
+          - 'host.docker.internal:9095'  # Kamon metrics endpoint
+        labels:
+          service: 'dataflow-platform'
+          module: 'core'
+
+  # ==========================================
+  # Kafka JMX Exporter (if configured)
+  # ==========================================
+  - job_name: 'kafka'
+    scrape_interval: 30s
+    static_configs:
+      - targets:
+          # - 'kafka:9101'  # Kafka JMX port
+        labels:
+          service: 'kafka'
+
+  # ==========================================
+  # Cassandra JMX Exporter (if configured)
+  # ==========================================
+  - job_name: 'cassandra'
+    scrape_interval: 30s
+    static_configs:
+      - targets:
+          # - 'cassandra:7199'  # Cassandra JMX port
+        labels:
+          service: 'cassandra'
+
+  # ==========================================
+  # Elasticsearch Exporter (if configured)
+  # ==========================================
+  - job_name: 'elasticsearch'
+    scrape_interval: 30s
+    static_configs:
+      - targets:
+          # - 'elasticsearch:9200'
+        labels:
+          service: 'elasticsearch'
+
+  # ==========================================
+  # PostgreSQL Exporter (if configured)
+  # ==========================================
+  - job_name: 'postgres'
+    scrape_interval: 30s
+    static_configs:
+      - targets:
+          # - 'postgres-exporter:9187'
+        labels:
+          service: 'postgres'
+
+  # ==========================================
+  # Redis Exporter (if configured)
+  # ==========================================
+  - job_name: 'redis'
+    scrape_interval: 30s
+    static_configs:
+      - targets:
+          # - 'redis-exporter:9121'
+        labels:
+          service: 'redis'
+
+# ==========================================
+# NOTES
+# ==========================================
+# 1. To scrape your DataFlow application from Docker:
+#    - Use 'host.docker.internal:9095' on Docker Desktop (Mac/Windows)
+#    - Use '172.17.0.1:9095' on Linux
+#    - Or add your app to the docker-compose network
+#
+# 2. To enable JMX exporters, add them to docker-compose.yml
+#
+# 3. View targets at: http://localhost:9090/targets
+#
+# 4. Query metrics at: http://localhost:9090/graph

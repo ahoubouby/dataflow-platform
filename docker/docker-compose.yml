@@ -267,6 +267,70 @@ services:
     networks:
       - dataflow-network
 
+  # ==========================================
+  # PROMETHEUS - Metrics Collection
+  # ==========================================
+  prometheus:
+    image: prom/prometheus:v2.50.1
+    container_name: dataflow-prometheus
+    ports:
+      - "9090:9090"
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=30d'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+      - '--web.enable-lifecycle'
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9090/-/healthy"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    networks:
+      - dataflow-network
+
+  # ==========================================
+  # GRAFANA - Visualization & Dashboards
+  # ==========================================
+  grafana:
+    image: grafana/grafana:10.3.3
+    container_name: dataflow-grafana
+    depends_on:
+      prometheus:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_INSTALL_PLUGINS=
+      - GF_SERVER_ROOT_URL=http://localhost:3000
+      - GF_DATABASE_TYPE=postgres
+      - GF_DATABASE_HOST=postgres:5432
+      - GF_DATABASE_NAME=dataflow
+      - GF_DATABASE_USER=dataflow
+      - GF_DATABASE_PASSWORD=dataflow
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    networks:
+      - dataflow-network
+
 # ==========================================
 # VOLUMES
 # ==========================================
@@ -289,6 +353,10 @@ volumes:
     driver: local
   redis-data:
     driver: local
+  prometheus-data:
+    driver: local
+  grafana-data:
+    driver: local
 
 # ==========================================
 # NETWORKS
@@ -307,10 +375,13 @@ networks:
 #   docker-compose up -d
 #
 # Start specific services:
-#   docker-compose up -d cassandra kafka elasticsearch
+#   docker-compose up -d cassandra kafka elasticsearch prometheus grafana
 #
 # View logs:
 #   docker-compose logs -f [service-name]
+#
+# Check service health:
+#   docker-compose ps
 #
 # Stop all services:
 #   docker-compose down
@@ -319,14 +390,21 @@ networks:
 #   docker-compose down -v
 #
 # Access UIs:
-#   Kafka UI:     http://localhost:8090
-#   Kibana:       http://localhost:5601
+#   Grafana:       http://localhost:3000 (admin/admin)
+#   Prometheus:    http://localhost:9090
+#   Kafka UI:      http://localhost:8090
+#   Kibana:        http://localhost:5601
 #   Elasticsearch: http://localhost:9200
 #
 # Connect to services:
 #   Cassandra:    localhost:9042
 #   Kafka:        localhost:9093 (from host), kafka:9092 (from containers)
-#   PostgreSQL:   localhost:5432 (user: dataflow, password: dataflow)
+#   PostgreSQL:   localhost:5432 (user: dataflow, password: dataflow, db: dataflow)
 #   Redis:        localhost:6379
 #   Elasticsearch: localhost:9200
 #   Logstash:     localhost:5000 (TCP), localhost:5044 (Beats)
+#   Prometheus:   localhost:9090
+#
+# Metrics Endpoints:
+#   Kamon (app):  http://localhost:9095/metrics (Prometheus format)
+#   Prometheus:   http://localhost:9090/targets (check scrape targets)
