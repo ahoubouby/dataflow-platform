@@ -1,7 +1,11 @@
 package com.dataflow.aggregates.coordinator
 
 import java.time.Instant
-import com.dataflow.domain.coordinator._
+
+import com.dataflow.domain.commands._
+import com.dataflow.domain.events._
+import com.dataflow.domain.models._
+import com.dataflow.domain.state.CoordinatorState
 import org.apache.pekko.pattern.StatusReply
 import org.apache.pekko.persistence.typed.PersistenceId
 import org.apache.pekko.persistence.typed.scaladsl.{Effect, EventSourcedBehavior, ReplyEffect, RetentionCriteria}
@@ -24,8 +28,8 @@ object CoordinatorAggregate {
   val CoordinatorId = "global-coordinator"
 
   // Resource limits (can be configured via application.conf in future)
-  private val MaxCpuPercent: Double = 80.0    // 80% total CPU
-  private val MaxMemoryMB: Long     = 80000L  // 80GB total memory
+  private val MaxCpuPercent: Double = 80.0   // 80% total CPU
+  private val MaxMemoryMB:   Long   = 80000L // 80GB total memory
 
   /**
    * Create the event sourced behavior for the coordinator.
@@ -86,7 +90,9 @@ object CoordinatorAggregate {
         if (!state.pipelines.contains(pipelineId)) {
           log.warn("msg=Status update for unknown pipeline pipelineId={}", pipelineId)
           // Silently ignore - pipeline may have been unregistered
-          Effect.none
+          Effect
+            .none
+            .thenNoReply()
         } else {
           log.debug(
             "msg=Update pipeline status pipelineId={} status={} records={} failed={}",
@@ -113,6 +119,7 @@ object CoordinatorAggregate {
         if (!state.pipelines.contains(pipelineId)) {
           log.warn("msg=Resource report for unknown pipeline pipelineId={}", pipelineId)
           Effect.none
+            .thenNoReply()
         } else {
           log.debug(
             "msg=Report resource usage pipelineId={} cpu={}% memory={}MB",
@@ -189,7 +196,7 @@ object CoordinatorAggregate {
                 totalCpuPercent = state.totalCpuPercent - info.cpuPercent,
                 totalMemoryMB = state.totalMemoryMB - info.memoryMB,
               )
-            case None => newState
+            case None       => newState
           }
 
         case PipelineStatusUpdated(pipelineId, status, totalRecords, failedRecords, ts) =>
@@ -205,7 +212,7 @@ object CoordinatorAggregate {
                 pipelines = state.pipelines + (pipelineId -> updatedInfo),
                 lastUpdated = ts,
               )
-            case None =>
+            case None       =>
               log.warn("msg=Evt status update for unknown pipeline pipelineId={}", pipelineId)
               state
           }
@@ -229,7 +236,7 @@ object CoordinatorAggregate {
                 totalMemoryMB = state.totalMemoryMB - oldMemory + memoryMB,
                 lastUpdated = ts,
               )
-            case None =>
+            case None       =>
               log.warn("msg=Evt resource report for unknown pipeline pipelineId={}", pipelineId)
               state
           }

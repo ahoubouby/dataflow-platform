@@ -1,6 +1,8 @@
-package com.dataflow.domain.coordinator
+package com.dataflow.domain.events
 
+import com.dataflow.domain.models.PipelineStatus
 import com.dataflow.serialization.CborSerializable
+
 import java.time.Instant
 
 /**
@@ -23,8 +25,7 @@ sealed trait CoordinatorEvent extends CborSerializable {
 final case class PipelineRegistered(
   pipelineId: String,
   name: String,
-  timestamp: Instant,
-) extends CoordinatorEvent
+  timestamp: Instant) extends CoordinatorEvent
 
 /**
  * A pipeline was unregistered from the coordinator.
@@ -34,8 +35,7 @@ final case class PipelineRegistered(
  */
 final case class PipelineUnregistered(
   pipelineId: String,
-  timestamp: Instant,
-) extends CoordinatorEvent
+  timestamp: Instant) extends CoordinatorEvent
 
 /**
  * Pipeline status was updated (health check, state change, metrics).
@@ -51,8 +51,7 @@ final case class PipelineStatusUpdated(
   status: PipelineStatus,
   totalRecords: Long,
   failedRecords: Long,
-  timestamp: Instant,
-) extends CoordinatorEvent
+  timestamp: Instant) extends CoordinatorEvent
 
 /**
  * Resource usage was reported by a pipeline.
@@ -66,5 +65,4 @@ final case class ResourceUsageReported(
   pipelineId: String,
   cpuPercent: Double,
   memoryMB: Long,
-  timestamp: Instant,
-) extends CoordinatorEvent
+  timestamp: Instant) extends CoordinatorEvent

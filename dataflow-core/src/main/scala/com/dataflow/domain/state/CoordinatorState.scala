@@ -1,4 +1,7 @@
-package com.dataflow.domain.coordinator
+package com.dataflow.domain.state
+
+
+import com.dataflow.domain.models.{PipelineInfo, PipelineStatus}
 
 import java.time.Instant
 
@@ -12,8 +15,7 @@ final case class CoordinatorState(
   pipelines: Map[String, PipelineInfo],
   totalCpuPercent: Double,
   totalMemoryMB: Long,
-  lastUpdated: Instant,
-) {
+  lastUpdated: Instant) {
 
   /**
    * Get information about a specific pipeline.
@@ -43,9 +45,8 @@ final case class CoordinatorState(
    *
    * @return Map of status to count
    */
-  def countByStatus: Map[PipelineStatus, Int] = {
+  def countByStatus: Map[PipelineStatus, Int] =
     pipelines.values.groupBy(_.status).view.mapValues(_.size).toMap
-  }
 
   /**
    * Check if resources are available for a new pipeline.
@@ -101,6 +102,7 @@ final case class CoordinatorState(
 }
 
 object CoordinatorState {
+
   val empty: CoordinatorState = CoordinatorState(
     pipelines = Map.empty,
     totalCpuPercent = 0.0,
@@ -127,8 +129,7 @@ final case class SystemHealth(
   failedPipelines: Int,
   totalCpuPercent: Double,
   totalMemoryMB: Long,
-  lastUpdated: Instant,
-)
+  lastUpdated: Instant)
 
 /**
  * Overall system health status.
@@ -136,8 +137,8 @@ final case class SystemHealth(
 sealed trait HealthStatus
 
 object HealthStatus {
-  case object Healthy extends HealthStatus   // All pipelines running normally
-  case object Degraded extends HealthStatus  // Some pipelines failed
-  case object Critical extends HealthStatus  // Majority of pipelines failed
-  case object Idle extends HealthStatus      // No pipelines registered
+  case object Healthy extends HealthStatus  // All pipelines running normally
+  case object Degraded extends HealthStatus // Some pipelines failed
+  case object Critical extends HealthStatus // Majority of pipelines failed
+  case object Idle extends HealthStatus     // No pipelines registered
 }

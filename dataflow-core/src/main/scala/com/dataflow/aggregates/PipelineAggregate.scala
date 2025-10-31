@@ -1,9 +1,5 @@
 package com.dataflow.aggregates
 
-import java.time.Instant
-
-import scala.util._
-
 import com.dataflow.aggregates.handlers._
 import com.dataflow.domain.commands._
 import com.dataflow.domain.events._
@@ -11,14 +7,8 @@ import com.dataflow.domain.models._
 import com.dataflow.domain.state._
 import com.dataflow.metrics.MetricsReporter
 import com.dataflow.recovery.{ErrorRecovery, TimeoutConfig}
-import com.dataflow.validation.{PipelineValidators, ValidationHelper}
-import com.wix.accord._
-import com.wix.accord.{Failure => VFailure, Success => VSuccess}
-import org.apache.pekko.actor.typed.ActorRef
-import org.apache.pekko.pattern.StatusReply
-import org.apache.pekko.persistence.typed.{RecoveryCompleted, SnapshotCompleted}
-import org.apache.pekko.persistence.typed.PersistenceId
-import org.apache.pekko.persistence.typed.scaladsl.{Effect, EventSourcedBehavior, ReplyEffect, RetentionCriteria}
+import org.apache.pekko.persistence.typed.{PersistenceId, RecoveryCompleted, SnapshotCompleted}
+import org.apache.pekko.persistence.typed.scaladsl.{EventSourcedBehavior, ReplyEffect, RetentionCriteria}
 import org.slf4j.LoggerFactory
 
 object PipelineAggregate {
@@ -122,7 +112,7 @@ object PipelineAggregate {
           )
 
         case PipelineStarted(_, ts) =>
-          val cfg = state.asInstanceOf[ConfiguredState]
+          val cfg      = state.asInstanceOf[ConfiguredState]
           log.debug("msg=Evt PipelineStarted pipelineId={}", cfg.pipelineId)
           val newState = RunningState(
             pipelineId = cfg.pipelineId,
@@ -144,7 +134,7 @@ object PipelineAggregate {
           r.copy(activeBatchId = Some(batchId))
 
         case BatchProcessed(pipelineId, batchId, ok, ko, timeMs, _) =>
-          val r = state.asInstanceOf[RunningState]
+          val r          = state.asInstanceOf[RunningState]
           // Record batch processing metrics
           MetricsReporter.recordBatchProcessed(pipelineId, ok, ko, timeMs)
           val newMetrics = r.metrics.incrementBatch(ok, ko, timeMs)
@@ -183,7 +173,7 @@ object PipelineAggregate {
           }
 
         case PipelineStopped(_, reason, finalMetrics, ts) =>
-          val r = state.asInstanceOf[RunningState]
+          val r        = state.asInstanceOf[RunningState]
           log.debug("msg=Evt PipelineStopped pipelineId={} reason={}", r.pipelineId, reason)
           val newState = StoppedState(
             pipelineId = r.pipelineId,
@@ -199,7 +189,7 @@ object PipelineAggregate {
           newState
 
         case PipelinePaused(_, reason, ts) =>
-          val r = state.asInstanceOf[RunningState]
+          val r        = state.asInstanceOf[RunningState]
           log.debug("msg=Evt PipelinePaused pipelineId={} reason={}", r.pipelineId, reason)
           val newState = PausedState(
             pipelineId = r.pipelineId,
@@ -215,7 +205,7 @@ object PipelineAggregate {
           newState
 
         case PipelineResumed(_, ts) =>
-          val p = state.asInstanceOf[PausedState]
+          val p        = state.asInstanceOf[PausedState]
           log.debug("msg=Evt PipelineResumed pipelineId={}", p.pipelineId)
           val newState = RunningState(
             pipelineId = p.pipelineId,
@@ -233,7 +223,7 @@ object PipelineAggregate {
           newState
 
         case PipelineFailed(_, error, ts) =>
-          val r = state.asInstanceOf[RunningState]
+          val r        = state.asInstanceOf[RunningState]
           log.error("msg=Evt PipelineFailed pipelineId={} code={} message={}", r.pipelineId, error.code, error.message)
           MetricsReporter.recordBatchFailed(r.pipelineId, error.code)
           val newState = FailedState(

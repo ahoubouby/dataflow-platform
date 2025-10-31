@@ -88,10 +88,10 @@ object MetricsReporter {
     Kamon.counter("dataflow.checkpoint.updates").withoutTags()
 
   // Track state counts for gauges
-  @volatile private var runningCount: Int  = 0
-  @volatile private var stoppedCount: Int  = 0
-  @volatile private var pausedCount: Int   = 0
-  @volatile private var failedCount: Int   = 0
+  @volatile private var runningCount: Int = 0
+  @volatile private var stoppedCount: Int = 0
+  @volatile private var pausedCount:  Int = 0
+  @volatile private var failedCount:  Int = 0
 
   /**
    * Initialize Kamon metrics system.
@@ -125,7 +125,12 @@ object MetricsReporter {
     fromState: State,
     toState: State,
   ): Unit = {
-    log.debug("msg=Record state transition pipelineId={} from={} to={}", pipelineId, fromState.getClass.getSimpleName, toState.getClass.getSimpleName)
+    log.debug(
+      "msg=Record state transition pipelineId={} from={} to={}",
+      pipelineId,
+      fromState.getClass.getSimpleName,
+      toState.getClass.getSimpleName,
+    )
 
     // Increment state transition counter
     stateTransitionsCounter
@@ -152,7 +157,13 @@ object MetricsReporter {
     failureCount: Int,
     processingTimeMs: Long,
   ): Unit = {
-    log.debug("msg=Record batch processed pipelineId={} success={} failed={} timeMs={}", pipelineId, successCount, failureCount, processingTimeMs)
+    log.debug(
+      "msg=Record batch processed pipelineId={} success={} failed={} timeMs={}",
+      pipelineId,
+      successCount,
+      failureCount,
+      processingTimeMs,
+    )
 
     // Increment batch counter
     batchesProcessedCounter
