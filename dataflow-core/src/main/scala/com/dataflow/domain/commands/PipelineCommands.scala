@@ -112,3 +112,11 @@ final case class UpdateConfig(
   pipelineId: String,
   newConfig: PipelineConfig,
   replyTo: ActorRef[StatusReply[State]]) extends Command
+
+/**
+ * Internal command for batch timeout.
+ * Triggered when a batch exceeds processing timeout.
+ */
+final case class BatchTimeout(
+  pipelineId: String,
+  batchId: String) extends Command

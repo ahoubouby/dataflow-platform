@@ -116,6 +116,8 @@ lazy val dataflowCore = (project in file("dataflow-core"))
       "ch.qos.logback" % "logback-classic" % logbackVersion,
       // Configuration library
       "com.typesafe" % "config" % "1.4.3",
+      // Validation library
+      "com.wix" %% "accord-core" % "0.7.6",
       // Actor TestKit
       "org.apache.pekko" %% "pekko-actor-testkit-typed" % pekkoVersion % Test,
       // Persistence TestKit (in-memory journal for tests)

@@ -91,3 +91,28 @@ final case class ConfigUpdated(
   pipelineId: String,
   newConfig: PipelineConfig,
   timestamp: Instant) extends Event
+
+/**
+ * Event indicating a retry has been scheduled for a failed operation.
+ * Used for error recovery with exponential backoff.
+ */
+final case class RetryScheduled(
+  pipelineId: String,
+  error: PipelineError,
+  retryCount: Int,
+  backoffMs: Long,
+  timestamp: Instant) extends Event {
+  override def tags: Set[String] = super.tags ++ Set("retry-events", "error-recovery")
+}
+
+/**
+ * Event indicating a batch processing has timed out.
+ * Used to detect and handle stuck batches.
+ */
+final case class BatchTimedOut(
+  pipelineId: String,
+  batchId: String,
+  timeoutMs: Long,
+  timestamp: Instant) extends Event {
+  override def tags: Set[String] = super.tags ++ Set("timeout-events", "failure-events")
+}

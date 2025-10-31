@@ -39,6 +39,8 @@ final case class RunningState(
   checkpoint: Checkpoint,
   metrics: PipelineMetrics,
   processedBatchIds: Set[String], // For idempotency
+  retryCount: Int = 0, // Track consecutive retry attempts for error recovery
+  activeBatchId: Option[String] = None // Track currently processing batch for timeout detection
 ) extends State
 
 /**
