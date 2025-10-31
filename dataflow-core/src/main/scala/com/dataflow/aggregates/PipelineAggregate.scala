@@ -1,18 +1,23 @@
 package com.dataflow.aggregates
 
 import java.time.Instant
+
+import scala.util._
+
 import com.dataflow.domain.commands._
 import com.dataflow.domain.events._
 import com.dataflow.domain.models._
 import com.dataflow.domain.state._
-import com.dataflow.validation.{PipelineValidators, ValidationHelper}
 import com.dataflow.recovery.{ErrorRecovery, TimeoutConfig}
+import com.dataflow.validation.{PipelineValidators, ValidationHelper}
 import com.wix.accord._
-import org.apache.pekko.actor.typed.{ActorRef, Behavior}
+import com.wix.accord.{Failure => VFailure, Success => VSuccess}
+import org.apache.pekko.actor.typed.ActorRef
 import org.apache.pekko.pattern.StatusReply
+import org.apache.pekko.persistence.typed.{RecoveryCompleted, SnapshotCompleted}
 import org.apache.pekko.persistence.typed.PersistenceId
 import org.apache.pekko.persistence.typed.scaladsl.{Effect, EventSourcedBehavior, ReplyEffect, RetentionCriteria}
-import scala.concurrent.duration._
+import org.slf4j.LoggerFactory
 
 object PipelineAggregate {
 
@@ -21,7 +26,8 @@ object PipelineAggregate {
   // ============================================
 
   private val timeoutConfig = TimeoutConfig.Default
-  private val retryConfig = ErrorRecovery.DefaultRetryConfig
+  private val retryConfig   = ErrorRecovery.DefaultRetryConfig
+  private val log           = LoggerFactory.getLogger("PipelineAggregate")
 
   // ============================================
   // EVENT SOURCED BEHAVIOR
@@ -33,39 +39,37 @@ object PipelineAggregate {
         persistenceId = PersistenceId.ofUniqueId(pipelineId),
         emptyState = EmptyState,
         commandHandler = (state, command) => commandHandler(pipelineId, state, command),
-        eventHandler = eventHandler
+        eventHandler = eventHandler,
       )
       .withRetention(
-        // Take snapshot every 100 events, keep last 2 snapshots
         RetentionCriteria
           .snapshotEvery(numberOfEvents = 100, keepNSnapshots = 2)
-          .withDeleteEventsOnSnapshot
+          .withDeleteEventsOnSnapshot,
       )
-      .withTagger(event => event.tags)
+      .withTagger(event => event.tags) // tags: Set[String]
       .receiveSignal {
-        case (state, org.apache.pekko.persistence.typed.RecoveryCompleted) =>
+        case (state, RecoveryCompleted) =>
           state match {
-            case running: RunningState =>
-              // Use context.log for structured logging
-              org.slf4j.LoggerFactory.getLogger(getClass).info(
-                "Pipeline {} recovered in running state. Checkpoint: offset={}, records={}",
+            case r: RunningState =>
+              log.info(
+                "msg=Recovered pipeline state stage=running pipelineId={} offset={} recordsProcessed={}",
                 pipelineId,
-                running.checkpoint.offset,
-                running.checkpoint.recordsProcessed
+                r.checkpoint.offset,
+                r.checkpoint.recordsProcessed,
               )
-            case _ =>
-              org.slf4j.LoggerFactory.getLogger(getClass).info(
-                "Pipeline {} recovered: {}",
+            case other           =>
+              log.info(
+                "msg=Recovered pipeline state pipelineId={} state={}",
                 pipelineId,
-                state.getClass.getSimpleName
+                other.getClass.getSimpleName,
               )
           }
 
-        case (state, org.apache.pekko.persistence.typed.SnapshotCompleted(metadata)) =>
-          org.slf4j.LoggerFactory.getLogger(getClass).info(
-            "Snapshot completed for {} at sequence {}",
+        case (_, SnapshotCompleted(metadata)) =>
+          log.info(
+            "msg=Snapshot completed pipelineId={} seqNr={}",
             pipelineId,
-            metadata.sequenceNr
+            metadata.sequenceNr,
           )
       }
   }
@@ -77,188 +81,192 @@ object PipelineAggregate {
   private def commandHandler(
     pipelineId: String,
     state: State,
-    command: Command
+    command: Command,
   ): ReplyEffect[Event, State] = {
-    val log = org.slf4j.LoggerFactory.getLogger(getClass)
 
-    log.debug("Handling command {} in state {}", command.getClass.getSimpleName, state.getClass.getSimpleName)
+    log.debug(
+      "msg=Handle command pipelineId={} cmd={} state={}",
+      pipelineId,
+      command.getClass.getSimpleName,
+      state.getClass.getSimpleName,
+    )
 
     state match {
-      case EmptyState                  => handleEmptyState(command)
-      case configured: ConfiguredState => handleConfiguredState(configured, command)
-      case running: RunningState       => handleRunningState(running, command)
-      case paused: PausedState         => handlePausedState(paused, command)
-      case stopped: StoppedState       => handleStoppedState(stopped, command)
-      case failed: FailedState         => handleFailedState(failed, command)
+      case EmptyState         => handleEmptyState(command)
+      case s: ConfiguredState => handleConfiguredState(s, command)
+      case s: RunningState    => handleRunningState(s, command)
+      case s: PausedState     => handlePausedState(s, command)
+      case s: StoppedState    => handleStoppedState(s, command)
+      case s: FailedState     => handleFailedState(s, command)
     }
   }
 
   private def handleEmptyState(command: Command): ReplyEffect[Event, State] = {
-    val log = org.slf4j.LoggerFactory.getLogger(getClass)
+    import PipelineValidators._
 
     command match {
       case cmd @ CreatePipeline(id, name, desc, source, transforms, sink, replyTo) =>
-        // Use comprehensive validation
-        import PipelineValidators._
-
         validate(cmd) match {
-          case Success =>
-            log.info("Creating pipeline {} with name '{}'", id, name)
+          case VSuccess =>
+            log.info("msg=Create pipeline id={} name='{}'", id, name)
             Effect
               .persist(PipelineCreated(id, name, desc, source, transforms, sink, Instant.now()))
               .thenReply(replyTo)(state => StatusReply.success(state))
 
-          case Failure(violations) =>
-            val errorMessage = ValidationHelper.formatViolations(violations)
-            log.warn("Pipeline creation validation failed: {}", errorMessage)
-            Effect.reply(replyTo)(StatusReply.error(s"Validation failed: $errorMessage"))
+          case VFailure(violations) =>
+            val err = ValidationHelper.formatViolations(violations)
+            log.warn("msg=Create validation failed id={} error={}", cmd.pipelineId, err)
+            Effect.reply(replyTo)(StatusReply.error(s"Validation failed: $err"))
         }
 
-      case _ =>
-        Effect.reply(command.asInstanceOf[{ def replyTo: ActorRef[StatusReply[State]] }].replyTo)(
-          StatusReply.error("Pipeline must be created first")
-        )
+      case GetState(_, replyTo) =>
+        Effect.reply(replyTo)(EmptyState)
+
+      case other =>
+        log.warn("msg=Command invalid in EmptyState cmd={}", other.getClass.getSimpleName)
+        Effect.noReply
     }
   }
 
   private def handleConfiguredState(
     state: ConfiguredState,
-    command: Command
+    command: Command,
   ): ReplyEffect[Event, State] = {
-    val log = org.slf4j.LoggerFactory.getLogger(getClass)
+    import PipelineValidators._
 
     command match {
       case StartPipeline(_, replyTo) =>
-        log.info("Starting pipeline {}", state.pipelineId)
+        log.info("msg=Start pipeline pipelineId={}", state.pipelineId)
         Effect
           .persist(PipelineStarted(state.pipelineId, Instant.now()))
           .thenReply(replyTo)(newState => StatusReply.success(newState))
 
       case UpdateConfig(_, newConfig, replyTo) =>
-        import PipelineValidators._
-
         validate(newConfig) match {
-          case Success =>
-            log.info("Updating configuration for pipeline {}", state.pipelineId)
+          case VSuccess =>
+            log.info("msg=Update config pipelineId={}", state.pipelineId)
             Effect
               .persist(ConfigUpdated(state.pipelineId, newConfig, Instant.now()))
               .thenReply(replyTo)(newState => StatusReply.success(newState))
 
-          case Failure(violations) =>
-            val errorMessage = ValidationHelper.formatViolations(violations)
-            log.warn("Configuration update validation failed: {}", errorMessage)
-            Effect.reply(replyTo)(StatusReply.error(s"Validation failed: $errorMessage"))
+          case VFailure(violations) =>
+            val err = ValidationHelper.formatViolations(violations)
+            log.warn("msg=Config validation failed pipelineId={} error={}", state.pipelineId, err)
+            Effect.reply(replyTo)(StatusReply.error(s"Validation failed: $err"))
         }
 
       case GetState(_, replyTo) =>
         Effect.reply(replyTo)(state)
 
-      case _ =>
-        Effect.unhandled.thenNoReply()
+      case other =>
+        log.warn(
+          "msg=Command invalid in ConfiguredState pipelineId={} cmd={}",
+          state.pipelineId,
+          other.getClass.getSimpleName,
+        )
+        Effect.noReply
     }
   }
 
   private def handleRunningState(
     state: RunningState,
-    command: Command
+    command: Command,
   ): ReplyEffect[Event, State] = {
-    val log = org.slf4j.LoggerFactory.getLogger(getClass)
+    import PipelineValidators._
 
     command match {
       case cmd @ IngestBatch(_, batchId, records, sourceOffset, replyTo) =>
-        // Validate batch
-        import PipelineValidators._
-
         validate(cmd) match {
-          case Failure(violations) =>
-            val errorMessage = ValidationHelper.formatViolations(violations)
-            log.warn("Batch validation failed for pipeline {}: {}", state.pipelineId, errorMessage)
-            Effect.reply(replyTo)(StatusReply.error(s"Validation failed: $errorMessage"))
+          case VFailure(violations) =>
+            val err = ValidationHelper.formatViolations(violations)
+            log.warn("msg=Batch validation failed pipelineId={} batchId={} error={}", state.pipelineId, batchId, err)
+            Effect.reply(replyTo)(StatusReply.error(s"Validation failed: $err"))
 
-          case Success =>
-            // IDEMPOTENCY CHECK - Critical for exactly-once semantics
+          case VSuccess =>
             if (state.processedBatchIds.contains(batchId)) {
-              log.debug("Batch {} already processed for pipeline {} (idempotency)", batchId, state.pipelineId)
-              Effect.reply(replyTo)(
-                StatusReply.success(BatchResult(batchId, records.size, 0, 0))
-              )
+              log.debug("msg=Idempotent batch pipelineId={} batchId={}", state.pipelineId, batchId)
+              Effect.reply(replyTo)(StatusReply.success(BatchResult(batchId, records.size, 0, 0)))
             } else {
-              log.debug("Processing batch {} with {} records for pipeline {}", batchId, records.size, state.pipelineId)
-
-              val startTime = System.currentTimeMillis()
-
-              // Simulate processing (in real system, this would be async)
+              val t0           = System.nanoTime()
               val successCount = records.size
               val failureCount = 0
+              val elapsedMs    = (System.nanoTime() - t0) / 1000000L
 
-              val endTime = System.currentTimeMillis()
-              val processingTime = endTime - startTime
+              // reset retry count after success
+              val _ = ErrorRecovery.resetRetryCount()
 
-              // Reset retry count on successful processing
-              val updatedRetryCount = ErrorRecovery.resetRetryCount()
-
-              log.info("Successfully processed batch {} with {} records in {}ms for pipeline {}",
-                batchId, successCount, processingTime, state.pipelineId)
+              log.info(
+                "msg=Processed batch pipelineId={} batchId={} records={} ok={} ko={} timeMs={}",
+                state.pipelineId,
+                batchId,
+                records.size,
+                successCount,
+                failureCount,
+                elapsedMs,
+              )
 
               Effect
-                .persist(
+                .persist(Seq(
                   BatchIngested(state.pipelineId, batchId, records.size, sourceOffset, Instant.now()),
-                  BatchProcessed(state.pipelineId, batchId, successCount, failureCount, processingTime, Instant.now()),
+                  BatchProcessed(state.pipelineId, batchId, successCount, failureCount, elapsedMs, Instant.now()),
                   CheckpointUpdated(
                     state.pipelineId,
                     Checkpoint(sourceOffset, Instant.now(), state.checkpoint.recordsProcessed + successCount),
-                    Instant.now()
-                  )
-                )
-                .thenReply(replyTo)(_ =>
-                  StatusReply.success(BatchResult(batchId, successCount, failureCount, processingTime))
-                )
+                    Instant.now(),
+                  ),
+                ))
+                .thenReply(replyTo)(_ => StatusReply.success(BatchResult(batchId, successCount, failureCount, elapsedMs)))
             }
         }
 
       case StopPipeline(_, reason, replyTo) =>
-        log.info("Stopping pipeline {} with reason: {}", state.pipelineId, reason)
+        log.info("msg=Stop pipeline pipelineId={} reason={}", state.pipelineId, reason)
         Effect
           .persist(PipelineStopped(state.pipelineId, reason, state.metrics, Instant.now()))
           .thenReply(replyTo)(newState => StatusReply.success(newState))
 
       case PausePipeline(_, reason, replyTo) =>
-        log.info("Pausing pipeline {} with reason: {}", state.pipelineId, reason)
+        log.info("msg=Pause pipeline pipelineId={} reason={}", state.pipelineId, reason)
         Effect
           .persist(PipelinePaused(state.pipelineId, reason, Instant.now()))
           .thenReply(replyTo)(newState => StatusReply.success(newState))
 
       case ReportFailure(_, error, replyTo) =>
-        import PipelineValidators._
-
         validate(error) match {
-          case Failure(violations) =>
-            val errorMessage = ValidationHelper.formatViolations(violations)
-            log.warn("Error validation failed: {}", errorMessage)
-            Effect.reply(replyTo)(StatusReply.error(s"Invalid error: $errorMessage"))
+          case VFailure(violations) =>
+            val err = ValidationHelper.formatViolations(violations)
+            log.warn("msg=Error validation failed pipelineId={} error={}", state.pipelineId, err)
+            Effect.reply(replyTo)(StatusReply.error(s"Invalid error: $err"))
 
-          case Success =>
-            // Implement retry logic with exponential backoff
+          case VSuccess =>
             if (ErrorRecovery.shouldRetry(error.code, state.retryCount, retryConfig.maxRetries)) {
               val newRetryCount = ErrorRecovery.incrementRetryCount(state.retryCount)
-              val backoff = ErrorRecovery.calculateExponentialBackoff(state.retryCount, retryConfig)
-
-              log.warn("Transient error {} in pipeline {}. {} (backoff: {}ms)",
-                error.code, state.pipelineId,
-                ErrorRecovery.retryDescription(newRetryCount, backoff), backoff)
-
+              val backoff       = ErrorRecovery.calculateExponentialBackoff(state.retryCount, retryConfig)
+              log.warn(
+                "msg=Transient error retry pipelineId={} code={} retryCount={} backoffMs={}",
+                state.pipelineId,
+                error.code,
+                newRetryCount,
+                backoff,
+              )
               Effect
                 .persist(RetryScheduled(state.pipelineId, error, newRetryCount, backoff, Instant.now()))
                 .thenReply(replyTo)(newState => StatusReply.success(newState))
             } else {
-              // Fatal error or exhausted retries
-              if (state.retryCount >= retryConfig.maxRetries) {
-                log.error("Pipeline {} failed after {} retry attempts with error: {}",
-                  state.pipelineId, state.retryCount, error.message)
-              } else {
-                log.error("Pipeline {} failed with non-retryable error {}: {}",
-                  state.pipelineId, error.code, error.message)
-              }
+              if (state.retryCount >= retryConfig.maxRetries)
+                log.error(
+                  "msg=Retries exhausted pipelineId={} code={} message={}",
+                  state.pipelineId,
+                  error.code,
+                  error.message,
+                )
+              else
+                log.error(
+                  "msg=Non-retryable error pipelineId={} code={} message={}",
+                  state.pipelineId,
+                  error.code,
+                  error.message,
+                )
 
               Effect
                 .persist(PipelineFailed(state.pipelineId, error, Instant.now()))
@@ -267,129 +275,130 @@ object PipelineAggregate {
         }
 
       case UpdateCheckpoint(_, checkpoint) =>
-        log.debug("Updating checkpoint for pipeline {} to offset {}", state.pipelineId, checkpoint.offset)
-        Effect
-          .persist(CheckpointUpdated(state.pipelineId, checkpoint, Instant.now()))
-          .thenNoReply()
+        log.debug("msg=Update checkpoint pipelineId={} offset={}", state.pipelineId, checkpoint.offset)
+        Effect.persist(CheckpointUpdated(state.pipelineId, checkpoint, Instant.now())).thenNoReply()
 
       case BatchTimeout(_, batchId) =>
         if (state.activeBatchId.contains(batchId)) {
-          log.error("Batch {} timed out in pipeline {} after {}ms",
-            batchId, state.pipelineId, timeoutConfig.batchTimeout.toMillis)
-
-          Effect
-            .persist(BatchTimedOut(state.pipelineId, batchId, timeoutConfig.batchTimeout.toMillis, Instant.now()))
-            .thenNoReply()
+          log.error(
+            "msg=Batch timeout pipelineId={} batchId={} timeoutMs={}",
+            state.pipelineId,
+            batchId,
+            timeoutConfig.batchTimeout.toMillis,
+          )
+          Effect.persist(
+            BatchTimedOut(state.pipelineId, batchId, timeoutConfig.batchTimeout.toMillis, Instant.now()),
+          ).thenNoReply()
         } else {
-          // Batch completed before timeout - ignore
-          log.debug("Ignoring timeout for completed batch {} in pipeline {}", batchId, state.pipelineId)
-          Effect.none
+          log.debug("msg=Ignore timeout (already completed) pipelineId={} batchId={}", state.pipelineId, batchId)
+          Effect.noReply
         }
 
       case GetState(_, replyTo) =>
         Effect.reply(replyTo)(state)
 
-      case _ =>
-        Effect.unhandled.thenNoReply()
+      case other =>
+        log.warn(
+          "msg=Command invalid in RunningState pipelineId={} cmd={}",
+          state.pipelineId,
+          other.getClass.getSimpleName,
+        )
+        Effect.noReply
     }
   }
 
   private def handlePausedState(
     state: PausedState,
-    command: Command
-  ): ReplyEffect[Event, State] = {
-    val log = org.slf4j.LoggerFactory.getLogger(getClass)
+    command: Command,
+  ): ReplyEffect[Event, State] = command match {
+    case ResumePipeline(_, replyTo) =>
+      log.info("msg=Resume pipeline pipelineId={}", state.pipelineId)
+      Effect.persist(PipelineResumed(state.pipelineId, Instant.now())).thenReply(replyTo)(ns => StatusReply.success(ns))
 
-    command match {
-      case ResumePipeline(_, replyTo) =>
-        log.info("Resuming pipeline {}", state.pipelineId)
-        Effect
-          .persist(PipelineResumed(state.pipelineId, Instant.now()))
-          .thenReply(replyTo)(newState => StatusReply.success(newState))
+    case StopPipeline(_, reason, replyTo) =>
+      log.info("msg=Stop paused pipeline pipelineId={} reason={}", state.pipelineId, reason)
+      Effect.persist(PipelineStopped(state.pipelineId, reason, state.metrics, Instant.now()))
+        .thenReply(replyTo)(ns => StatusReply.success(ns))
 
-      case StopPipeline(_, reason, replyTo) =>
-        log.info("Stopping paused pipeline {} with reason: {}", state.pipelineId, reason)
-        Effect
-          .persist(PipelineStopped(state.pipelineId, reason, state.metrics, Instant.now()))
-          .thenReply(replyTo)(newState => StatusReply.success(newState))
+    case GetState(_, replyTo) =>
+      Effect.reply(replyTo)(state)
 
-      case GetState(_, replyTo) =>
-        Effect.reply(replyTo)(state)
+    case IngestBatch(_, _, _, _, replyTo) =>
+      log.warn("msg=Ingest while paused pipelineId={}", state.pipelineId)
+      Effect.reply(replyTo)(StatusReply.error("Pipeline is paused"))
 
-      case IngestBatch(_, _, _, _, replyTo) =>
-        log.warn("Attempted to ingest batch while pipeline {} is paused", state.pipelineId)
-        Effect.reply(replyTo)(StatusReply.error("Pipeline is paused"))
-
-      case _ =>
-        Effect.unhandled.thenNoReply()
-    }
+    case other =>
+      log.warn("msg=Command invalid in PausedState pipelineId={} cmd={}", state.pipelineId, other.getClass.getSimpleName)
+      Effect.noReply
   }
 
   private def handleStoppedState(
     state: StoppedState,
-    command: Command
+    command: Command,
   ): ReplyEffect[Event, State] = {
-    val log = org.slf4j.LoggerFactory.getLogger(getClass)
+    import PipelineValidators._
 
     command match {
       case StartPipeline(_, replyTo) =>
-        log.info("Restarting pipeline {} from checkpoint offset {}",
-          state.pipelineId, state.lastCheckpoint.offset)
-        Effect
-          .persist(PipelineStarted(state.pipelineId, Instant.now()))
-          .thenReply(replyTo)(newState => StatusReply.success(newState))
+        log.info("msg=Restart pipeline pipelineId={} offset={}", state.pipelineId, state.lastCheckpoint.offset)
+        Effect.persist(PipelineStarted(state.pipelineId, Instant.now())).thenReply(replyTo)(ns => StatusReply.success(ns))
 
       case UpdateConfig(_, newConfig, replyTo) =>
-        import PipelineValidators._
-
         validate(newConfig) match {
-          case Success =>
-            log.info("Updating configuration for stopped pipeline {}", state.pipelineId)
-            Effect
-              .persist(ConfigUpdated(state.pipelineId, newConfig, Instant.now()))
-              .thenReply(replyTo)(newState => StatusReply.success(newState))
-
-          case Failure(violations) =>
-            val errorMessage = ValidationHelper.formatViolations(violations)
-            log.warn("Configuration update validation failed: {}", errorMessage)
-            Effect.reply(replyTo)(StatusReply.error(s"Validation failed: $errorMessage"))
+          case VSuccess             =>
+            log.info("msg=Update config (stopped) pipelineId={}", state.pipelineId)
+            Effect.persist(ConfigUpdated(state.pipelineId, newConfig, Instant.now()))
+              .thenReply(replyTo)(ns => StatusReply.success(ns))
+          case VFailure(violations) =>
+            val err = ValidationHelper.formatViolations(violations)
+            log.warn("msg=Config validation failed (stopped) pipelineId={} error={}", state.pipelineId, err)
+            Effect.reply(replyTo)(StatusReply.error(s"Validation failed: $err"))
         }
 
       case GetState(_, replyTo) =>
         Effect.reply(replyTo)(state)
 
       case IngestBatch(_, _, _, _, replyTo) =>
-        log.warn("Attempted to ingest batch while pipeline {} is stopped", state.pipelineId)
+        log.warn("msg=Ingest while stopped pipelineId={}", state.pipelineId)
         Effect.reply(replyTo)(StatusReply.error("Pipeline is stopped. Start it first."))
 
-      case _ =>
-        Effect.unhandled.thenNoReply()
+      case other =>
+        log.warn(
+          "msg=Command invalid in StoppedState pipelineId={} cmd={}",
+          state.pipelineId,
+          other.getClass.getSimpleName,
+        )
+        Effect.noReply
     }
   }
 
   private def handleFailedState(
     state: FailedState,
-    command: Command
-  ): ReplyEffect[Event, State] = {
-    val log = org.slf4j.LoggerFactory.getLogger(getClass)
+    command: Command,
+  ): ReplyEffect[Event, State] = command match {
+    case ResetPipeline(_, replyTo) =>
+      log.info("msg=Reset failed pipeline pipelineId={}", state.pipelineId)
+      Effect.persist(PipelineReset(state.pipelineId, Instant.now())).thenReply(replyTo)(ns => StatusReply.success(ns))
 
-    command match {
-      case ResetPipeline(_, replyTo) =>
-        log.info("Resetting failed pipeline {} to configured state", state.pipelineId)
-        Effect
-          .persist(PipelineReset(state.pipelineId, Instant.now()))
-          .thenReply(replyTo)(newState => StatusReply.success(newState))
+    case GetState(_, replyTo) =>
+      Effect.reply(replyTo)(state)
 
-      case GetState(_, replyTo) =>
-        Effect.reply(replyTo)(state)
-
-      case _ =>
-        log.warn("Pipeline {} is in failed state. Reset required. Error: {}",
-          state.pipelineId, state.error.message)
-        Effect.reply(command.asInstanceOf[{ def replyTo: ActorRef[Any] }].replyTo)(
-          StatusReply.error(s"Pipeline failed: ${state.error.message}. Reset required.")
-        )
-    }
+    case other =>
+      log.warn(
+        "msg=Command invalid in FailedState pipelineId={} cmd={} error={}",
+        state.pipelineId,
+        other.getClass.getSimpleName,
+        state.error.message,
+      )
+      // If you want to always answer when invalid:
+      other match {
+        case c: CommandWithReply[_] => // <-- OPTIONAL: if you have such a trait in your model
+          Effect.reply(c.replyTo.asInstanceOf[ActorRef[StatusReply[Any]]])(
+            StatusReply.error(s"Pipeline failed: ${state.error.message}. Reset required."),
+          )
+        case _                      =>
+          Effect.noReply
+      }
   }
 
   // ============================================
@@ -398,150 +407,150 @@ object PipelineAggregate {
 
   private val eventHandler: (State, Event) => State = {
     (state, event) =>
-      val log = org.slf4j.LoggerFactory.getLogger(getClass)
-
-      (state, event) match {
-        case (EmptyState, PipelineCreated(id, name, desc, source, transforms, sink, timestamp)) =>
-          log.debug("Pipeline {} created with name '{}'", id, name)
+      event match {
+        case PipelineCreated(id, name, desc, source, transforms, sink, ts) =>
+          log.debug("msg=Evt PipelineCreated id={} name='{}'", id, name)
           ConfiguredState(
             pipelineId = id,
             name = name,
             description = desc,
             config = PipelineConfig(source, transforms, sink),
-            createdAt = timestamp
+            createdAt = ts,
           )
 
-        case (configured: ConfiguredState, PipelineStarted(_, timestamp)) =>
-          log.debug("Pipeline {} started", configured.pipelineId)
+        case PipelineStarted(_, ts) =>
+          val cfg = state.asInstanceOf[ConfiguredState]
+          log.debug("msg=Evt PipelineStarted pipelineId={}", cfg.pipelineId)
           RunningState(
-            pipelineId = configured.pipelineId,
-            name = configured.name,
-            description = configured.description,
-            config = configured.config,
-            startedAt = timestamp,
+            pipelineId = cfg.pipelineId,
+            name = cfg.name,
+            description = cfg.description,
+            config = cfg.config,
+            startedAt = ts,
             checkpoint = Checkpoint.initial,
             metrics = PipelineMetrics.empty,
             processedBatchIds = Set.empty,
             retryCount = 0,
-            activeBatchId = None
+            activeBatchId = None,
           )
 
-        case (running: RunningState, BatchIngested(_, batchId, _, _, _)) =>
-          // Track active batch for timeout detection
-          running.copy(activeBatchId = Some(batchId))
+        case BatchIngested(_, batchId, _, _, _) =>
+          val r = state.asInstanceOf[RunningState]
+          r.copy(activeBatchId = Some(batchId))
 
-        case (running: RunningState, BatchProcessed(_, batchId, success, failed, processingTime, _)) =>
-          running.copy(
-            metrics = running.metrics.incrementBatch(success, failed, processingTime),
-            processedBatchIds = running.processedBatchIds + batchId,
-            activeBatchId = None, // Clear active batch after successful processing
-            retryCount = ErrorRecovery.resetRetryCount() // Reset retry count on success
+        case BatchProcessed(_, batchId, ok, ko, timeMs, _) =>
+          val r = state.asInstanceOf[RunningState]
+          r.copy(
+            metrics = r.metrics.incrementBatch(ok, ko, timeMs),
+            processedBatchIds = r.processedBatchIds + batchId,
+            activeBatchId = None,
+            retryCount = ErrorRecovery.resetRetryCount(),
           )
 
-        case (running: RunningState, CheckpointUpdated(_, checkpoint, _)) =>
-          running.copy(checkpoint = checkpoint)
+        case CheckpointUpdated(_, checkpoint, _) =>
+          state match {
+            case r: RunningState => r.copy(checkpoint = checkpoint)
+            case s               => s
+          }
 
-        case (running: RunningState, RetryScheduled(_, error, retryCount, backoffMs, _)) =>
-          log.debug("Retry {} scheduled for pipeline {} with backoff {}ms",
-            retryCount, running.pipelineId, backoffMs)
-          running.copy(retryCount = retryCount)
+        case RetryScheduled(_, _, retryCount, _, _) =>
+          state match {
+            case r: RunningState =>
+              log.debug("msg=Evt RetryScheduled pipelineId={} retryCount={}", r.pipelineId, retryCount)
+              r.copy(retryCount = retryCount)
+            case s               => s
+          }
 
-        case (running: RunningState, BatchTimedOut(_, batchId, timeoutMs, _)) =>
-          log.warn("Batch {} timed out in pipeline {} after {}ms",
-            batchId, running.pipelineId, timeoutMs)
-          // Clear the timed-out batch
-          running.copy(activeBatchId = None)
+        case BatchTimedOut(_, batchId, timeoutMs, _) =>
+          state match {
+            case r: RunningState =>
+              log.warn("msg=Evt BatchTimedOut pipelineId={} batchId={} timeoutMs={}", r.pipelineId, batchId, timeoutMs)
+              r.copy(activeBatchId = None)
+            case s               => s
+          }
 
-        case (running: RunningState, PipelineStopped(_, reason, finalMetrics, timestamp)) =>
-          log.debug("Pipeline {} stopped: {}", running.pipelineId, reason)
+        case PipelineStopped(_, reason, finalMetrics, ts) =>
+          val r = state.asInstanceOf[RunningState]
+          log.debug("msg=Evt PipelineStopped pipelineId={} reason={}", r.pipelineId, reason)
           StoppedState(
-            pipelineId = running.pipelineId,
-            name = running.name,
-            description = running.description,
-            config = running.config,
-            stoppedAt = timestamp,
+            pipelineId = r.pipelineId,
+            name = r.name,
+            description = r.description,
+            config = r.config,
+            stoppedAt = ts,
             stopReason = reason,
-            lastCheckpoint = running.checkpoint,
-            finalMetrics = finalMetrics
+            lastCheckpoint = r.checkpoint,
+            finalMetrics = finalMetrics,
           )
 
-        case (running: RunningState, PipelinePaused(_, reason, timestamp)) =>
-          log.debug("Pipeline {} paused: {}", running.pipelineId, reason)
+        case PipelinePaused(_, reason, ts) =>
+          val r = state.asInstanceOf[RunningState]
+          log.debug("msg=Evt PipelinePaused pipelineId={} reason={}", r.pipelineId, reason)
           PausedState(
-            pipelineId = running.pipelineId,
-            name = running.name,
-            description = running.description,
-            config = running.config,
-            pausedAt = timestamp,
+            pipelineId = r.pipelineId,
+            name = r.name,
+            description = r.description,
+            config = r.config,
+            pausedAt = ts,
             pauseReason = reason,
-            checkpoint = running.checkpoint,
-            metrics = running.metrics
+            checkpoint = r.checkpoint,
+            metrics = r.metrics,
           )
 
-        case (paused: PausedState, PipelineResumed(_, timestamp)) =>
-          log.debug("Pipeline {} resumed", paused.pipelineId)
+        case PipelineResumed(_, ts) =>
+          val p = state.asInstanceOf[PausedState]
+          log.debug("msg=Evt PipelineResumed pipelineId={}", p.pipelineId)
           RunningState(
-            pipelineId = paused.pipelineId,
-            name = paused.name,
-            description = paused.description,
-            config = paused.config,
-            startedAt = timestamp,
-            checkpoint = paused.checkpoint,
-            metrics = paused.metrics,
+            pipelineId = p.pipelineId,
+            name = p.name,
+            description = p.description,
+            config = p.config,
+            startedAt = ts,
+            checkpoint = p.checkpoint,
+            metrics = p.metrics,
             processedBatchIds = Set.empty,
             retryCount = 0,
-            activeBatchId = None
+            activeBatchId = None,
           )
 
-        case (stopped: StoppedState, PipelineStarted(_, timestamp)) =>
-          log.debug("Pipeline {} restarted from checkpoint", stopped.pipelineId)
-          RunningState(
-            pipelineId = stopped.pipelineId,
-            name = stopped.name,
-            description = stopped.description,
-            config = stopped.config,
-            startedAt = timestamp,
-            checkpoint = stopped.lastCheckpoint,
-            metrics = stopped.finalMetrics,
-            processedBatchIds = Set.empty,
-            retryCount = 0,
-            activeBatchId = None
-          )
-
-        case (running: RunningState, PipelineFailed(_, error, timestamp)) =>
-          log.error("Pipeline {} failed with error: {}", running.pipelineId, error.message)
+        case PipelineFailed(_, error, ts) =>
+          val r = state.asInstanceOf[RunningState]
+          log.error("msg=Evt PipelineFailed pipelineId={} code={} message={}", r.pipelineId, error.code, error.message)
           FailedState(
-            pipelineId = running.pipelineId,
-            name = running.name,
-            description = running.description,
+            pipelineId = r.pipelineId,
+            name = r.name,
+            description = r.description,
             error = error,
-            failedAt = timestamp,
-            lastCheckpoint = Some(running.checkpoint)
+            failedAt = ts,
+            lastCheckpoint = Some(r.checkpoint),
           )
 
-        case (failed: FailedState, PipelineReset(_, timestamp)) =>
-          log.info("Pipeline {} reset from failed state", failed.pipelineId)
+        case PipelineReset(_, ts) =>
+          val f = state.asInstanceOf[FailedState]
+          log.info("msg=Evt PipelineReset pipelineId={}", f.pipelineId)
           ConfiguredState(
-            pipelineId = failed.pipelineId,
-            name = failed.name,
-            description = failed.description,
-            config = PipelineConfig(
-              SourceConfig("", "", 0, 0),
-              List.empty,
-              SinkConfig("", "", 0)
-            ),
-            createdAt = timestamp
+            pipelineId = f.pipelineId,
+            name = f.name,
+            description = f.description,
+            config = PipelineConfig(SourceConfig("", "", 0, 0), List.empty, SinkConfig("", "", 0)),
+            createdAt = ts,
           )
 
-        case (configured: ConfiguredState, ConfigUpdated(_, newConfig, _)) =>
-          log.debug("Configuration updated for pipeline {}", configured.pipelineId)
-          configured.copy(config = newConfig)
+        case ConfigUpdated(_, newConfig, _) =>
+          state match {
+            case c: ConfiguredState =>
+              log.debug("msg=Evt ConfigUpdated pipelineId={}", c.pipelineId)
+              c.copy(config = newConfig)
+            case s: StoppedState    =>
+              log.debug("msg=Evt ConfigUpdated (stopped) pipelineId={}", s.pipelineId)
+              s.copy(config = newConfig)
+            case s                  => s
+          }
 
-        case (stopped: StoppedState, ConfigUpdated(_, newConfig, _)) =>
-          log.debug("Configuration updated for stopped pipeline {}", stopped.pipelineId)
-          stopped.copy(config = newConfig)
-
-        case _ => state
+        case other =>
+          // No state change
+          log.debug("msg=Evt ignored type={}", other.getClass.getSimpleName)
+          state
       }
   }
 }

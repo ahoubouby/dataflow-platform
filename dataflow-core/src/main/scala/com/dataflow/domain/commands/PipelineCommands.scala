@@ -14,6 +14,8 @@ sealed trait Command extends CborSerializable {
   def pipelineId: String
 }
 
+trait CommandWithReply[A] { def replyTo: ActorRef[A] }
+
 /**
  * Create a new pipeline with configuration.
  * This is the initial command that creates the pipeline entity.
@@ -25,7 +27,7 @@ final case class CreatePipeline(
   sourceConfig: SourceConfig,
   transformConfigs: List[TransformConfig],
   sinkConfig: SinkConfig,
-  replyTo: ActorRef[StatusReply[State]]) extends Command
+  replyTo: ActorRef[StatusReply[State]]) extends Command with CommandWithReply[StatusReply[State]]
 
 /**
  * Start the pipeline (begin processing data).
@@ -33,7 +35,7 @@ final case class CreatePipeline(
  */
 final case class StartPipeline(
   pipelineId: String,
-  replyTo: ActorRef[StatusReply[State]]) extends Command
+  replyTo: ActorRef[StatusReply[State]]) extends Command with CommandWithReply[StatusReply[State]]
 
 /**
  * Stop the pipeline (stop processing data).
@@ -42,7 +44,7 @@ final case class StartPipeline(
 final case class StopPipeline(
   pipelineId: String,
   reason: String,
-  replyTo: ActorRef[StatusReply[State]]) extends Command
+  replyTo: ActorRef[StatusReply[State]]) extends Command with CommandWithReply[StatusReply[State]]
 
 /**
  * Pause the pipeline (temporarily stop processing).
@@ -51,14 +53,14 @@ final case class StopPipeline(
 final case class PausePipeline(
   pipelineId: String,
   reason: String,
-  replyTo: ActorRef[StatusReply[State]]) extends Command
+  replyTo: ActorRef[StatusReply[State]]) extends Command with CommandWithReply[StatusReply[State]]
 
 /**
  * Resume a paused pipeline.
  */
 final case class ResumePipeline(
   pipelineId: String,
-  replyTo: ActorRef[StatusReply[State]]) extends Command
+  replyTo: ActorRef[StatusReply[State]]) extends Command with CommandWithReply[StatusReply[State]]
 
 /**
  * Ingest a batch of data into the pipeline.
@@ -71,7 +73,7 @@ final case class IngestBatch(
   batchId: String,
   records: List[DataRecord],
   sourceOffset: Long,
-  replyTo: ActorRef[StatusReply[BatchResult]]) extends Command
+  replyTo: ActorRef[StatusReply[BatchResult]]) extends Command with CommandWithReply[StatusReply[BatchResult]]
 
 /**
  * Update the checkpoint (processed offset).
@@ -88,21 +90,21 @@ final case class UpdateCheckpoint(
 final case class ReportFailure(
   pipelineId: String,
   error: PipelineError,
-  replyTo: ActorRef[StatusReply[State]]) extends Command
+  replyTo: ActorRef[StatusReply[State]]) extends Command with CommandWithReply[StatusReply[State]]
 
 /**
  * Reset a failed pipeline to allow restart.
  */
 final case class ResetPipeline(
   pipelineId: String,
-  replyTo: ActorRef[StatusReply[State]]) extends Command
+  replyTo: ActorRef[StatusReply[State]]) extends Command with CommandWithReply[StatusReply[State]]
 
 /**
  * Get current state (read-only command).
  */
 final case class GetState(
   pipelineId: String,
-  replyTo: ActorRef[State]) extends Command
+  replyTo: ActorRef[State]) extends Command with CommandWithReply[State]
 
 /**
  * Update pipeline configuration.
@@ -111,7 +113,7 @@ final case class GetState(
 final case class UpdateConfig(
   pipelineId: String,
   newConfig: PipelineConfig,
-  replyTo: ActorRef[StatusReply[State]]) extends Command
+  replyTo: ActorRef[StatusReply[State]]) extends Command with CommandWithReply[StatusReply[State]]
 
 /**
  * Internal command for batch timeout.

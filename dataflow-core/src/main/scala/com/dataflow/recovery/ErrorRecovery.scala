@@ -14,8 +14,7 @@ object ErrorRecovery {
     maxRetries: Int = 5,
     initialBackoff: FiniteDuration = 1.second,
     maxBackoff: FiniteDuration = 30.seconds,
-    randomFactor: Double = 0.2
-  )
+    randomFactor: Double = 0.2)
 
   /**
    * Default retry configuration.
@@ -33,15 +32,15 @@ object ErrorRecovery {
    */
   def calculateExponentialBackoff(
     retryCount: Int,
-    config: RetryConfig = DefaultRetryConfig
+    config: RetryConfig = DefaultRetryConfig,
   ): Long = {
     require(retryCount >= 0, "Retry count must be non-negative")
 
     val exponentialBackoff = config.initialBackoff * Math.pow(2, retryCount)
-    val cappedBackoff = Math.min(exponentialBackoff.toMillis, config.maxBackoff.toMillis)
+    val cappedBackoff      = Math.min(exponentialBackoff.toMillis, config.maxBackoff.toMillis)
 
     // Add random jitter to prevent thundering herd
-    val jitter = cappedBackoff * config.randomFactor * (Math.random() * 2 - 1)
+    val jitter            = cappedBackoff * config.randomFactor * (Math.random() * 2 - 1)
     val backoffWithJitter = cappedBackoff + jitter
 
     Math.max(0, backoffWithJitter.toLong)
@@ -58,9 +57,9 @@ object ErrorRecovery {
   def shouldRetry(
     errorCode: String,
     retryCount: Int,
-    maxRetries: Int = DefaultRetryConfig.maxRetries
+    maxRetries: Int = DefaultRetryConfig.maxRetries,
   ): Boolean = {
-    val isTransient = isTransientError(errorCode)
+    val isTransient    = isTransientError(errorCode)
     val hasRetriesLeft = retryCount < maxRetries
 
     isTransient && hasRetriesLeft
@@ -91,7 +90,7 @@ object ErrorRecovery {
       "NETWORK_ERROR",
       "TOO_MANY_REQUESTS",
       "DEADLOCK",
-      "RESOURCE_EXHAUSTED"
+      "RESOURCE_EXHAUSTED",
     )
 
     transientCodes.contains(errorCode.toUpperCase)
@@ -122,8 +121,7 @@ object ErrorRecovery {
  */
 case class TimeoutConfig(
   batchTimeout: FiniteDuration = 5.minutes,
-  operationTimeout: FiniteDuration = 30.seconds
-)
+  operationTimeout: FiniteDuration = 30.seconds)
 
 object TimeoutConfig {
   val Default: TimeoutConfig = TimeoutConfig()

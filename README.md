@@ -35,24 +35,24 @@ DataFlow Platform is a **horizontally scalable, event-sourced data pipeline orch
 └──────────────────────────────┬──────────────────────────────────────┘
                                │
       ┌────────────────────────┴────────────────────────┐
-      │                                                  │
-┌─────▼─────┐  ┌─────────┐  ┌─────────┐  ┌───────────┐
-│  Node 1   │  │ Node 2  │  │ Node 3  │  │  Node N   │
-│ Pipeline  │  │Pipeline │  │Pipeline │  │  Pipeline │
-│   Actor   │  │ Actor   │  │ Actor   │  │   Actor   │
-│           │  │         │  │         │  │           │
-│ Source    │  │ Source  │  │ Source  │  │  Source   │
-│    ↓      │  │    ↓    │  │    ↓    │  │     ↓     │
-│Transform  │  │Transform│  │Transform│  │ Transform │
-│    ↓      │  │    ↓    │  │    ↓    │  │     ↓     │
-│  Sink     │  │  Sink   │  │  Sink   │  │   Sink    │
-└───────────┘  └─────────┘  └─────────┘  └───────────┘
-      │              │            │              │
-      └──────────────┴────────────┴──────────────┘
+      │                                                 │
+┌─────▼─────┐  ┌─────────┐  ┌─────────┐             ┌───────────┐
+│  Node 1   │  │ Node 2  │  │ Node 3  │             │  Node N   │
+│ Pipeline  │  │Pipeline │  │Pipeline │             │  Pipeline │
+│   Actor   │  │ Actor   │  │ Actor   │             │   Actor   │
+│           │  │         │  │         │             │           │
+│ Source    │  │ Source  │  │ Source  │             │  Source   │
+│    ↓      │  │    ↓    │  │    ↓    │             │     ↓     │
+│Transform  │  │Transform│  │Transform│             │ Transform │
+│    ↓      │  │    ↓    │  │    ↓    │             │     ↓     │
+│  Sink     │  │  Sink   │  │  Sink   │             │   Sink    │
+└───────────┘  └─────────┘  └─────────┘             └───────────┘
+      │              │            │                     │
+      └──────────────┴────────────┴─────────────────────┘
                      │
 ┌────────────────────▼────────────────────────────────────────────────┐
 │                      Persistence Layer                              │
-│  Cassandra (Events) • Kafka (Streaming) • PostgreSQL (Read Models) │
+│  Cassandra (Events) • Kafka (Streaming) • PostgreSQL (Read Models)  │
 │                   Redis (Cache) • Elasticsearch (Search)            │
 └─────────────────────────────────────────────────────────────────────┘
 ```

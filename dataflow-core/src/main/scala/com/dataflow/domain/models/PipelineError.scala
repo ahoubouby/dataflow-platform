@@ -7,6 +7,7 @@ import com.dataflow.serialization.CborSerializable
  */
 final case class PipelineError(
   errorType: String, // "source", "transform", "sink", "system"
+  code: String,
   message: String,
   stackTrace: Option[String],
   retryable: Boolean) extends CborSerializable
