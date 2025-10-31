@@ -1,22 +1,332 @@
 version: '3.8'
 
+# ============================================
+# DataFlow Platform - Local Development Stack
+# ============================================
+# Includes: Cassandra, Kafka, Zookeeper, Elasticsearch, Logstash, Kibana
+# Usage: docker-compose up -d
+
 services:
+  # ==========================================
+  # CASSANDRA - Event Store & Persistence
+  # ==========================================
   cassandra:
     image: cassandra:4.1
     container_name: dataflow-cassandra
     ports:
-      - "9042:9042"
+      - "9042:9042"    # CQL native transport
+      - "7000:7000"    # Inter-node communication
+      - "7199:7199"    # JMX
     environment:
       - CASSANDRA_CLUSTER_NAME=DataFlowCluster
       - CASSANDRA_DC=datacenter1
+      - CASSANDRA_RACK=rack1
       - CASSANDRA_ENDPOINT_SNITCH=GossipingPropertyFileSnitch
+      - CASSANDRA_NUM_TOKENS=256
+      # Memory settings for local development
+      - MAX_HEAP_SIZE=512M
+      - HEAP_NEWSIZE=128M
     volumes:
       - cassandra-data:/var/lib/cassandra
     healthcheck:
-      test: [ "CMD", "cqlsh", "-e", "describe keyspaces" ]
-      interval: 15s
+      test: ["CMD", "cqlsh", "-e", "describe keyspaces"]
+      interval: 30s
       timeout: 10s
       retries: 10
+      start_period: 60s
+    networks:
+      - dataflow-network
 
+  # ==========================================
+  # ZOOKEEPER - Required for Kafka
+  # ==========================================
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.6.0
+    container_name: dataflow-zookeeper
+    ports:
+      - "2181:2181"
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+      ZOOKEEPER_SYNC_LIMIT: 2
+    volumes:
+      - zookeeper-data:/var/lib/zookeeper/data
+      - zookeeper-logs:/var/lib/zookeeper/log
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "2181"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - dataflow-network
+
+  # ==========================================
+  # KAFKA - Message Broker & Streaming
+  # ==========================================
+  kafka:
+    image: confluentinc/cp-kafka:7.6.0
+    container_name: dataflow-kafka
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+    ports:
+      - "9092:9092"    # Kafka broker
+      - "9093:9093"    # External listener
+      - "9101:9101"    # JMX
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+
+      # Listeners configuration
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,PLAINTEXT_HOST://0.0.0.0:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:9093
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+
+      # Topic settings
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+
+      # Performance tuning for local dev
+      KAFKA_NUM_PARTITIONS: 3
+      KAFKA_DEFAULT_REPLICATION_FACTOR: 1
+      KAFKA_MIN_INSYNC_REPLICAS: 1
+
+      # JMX settings
+      KAFKA_JMX_PORT: 9101
+      KAFKA_JMX_HOSTNAME: localhost
+
+      # Log settings
+      KAFKA_LOG_RETENTION_HOURS: 168
+      KAFKA_LOG_SEGMENT_BYTES: 1073741824
+      KAFKA_LOG_RETENTION_CHECK_INTERVAL_MS: 300000
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9092"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    networks:
+      - dataflow-network
+
+  # ==========================================
+  # KAFKA UI - Web interface for Kafka
+  # ==========================================
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: dataflow-kafka-ui
+    depends_on:
+      kafka:
+        condition: service_healthy
+    ports:
+      - "8090:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: dataflow-cluster
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+      KAFKA_CLUSTERS_0_ZOOKEEPER: zookeeper:2181
+      DYNAMIC_CONFIG_ENABLED: "true"
+    networks:
+      - dataflow-network
+
+  # ==========================================
+  # ELASTICSEARCH - Search & Analytics
+  # ==========================================
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.12.0
+    container_name: dataflow-elasticsearch
+    ports:
+      - "9200:9200"    # REST API
+      - "9300:9300"    # Node communication
+    environment:
+      - discovery.type=single-node
+      - cluster.name=dataflow-cluster
+      - node.name=dataflow-es-node
+      - bootstrap.memory_lock=true
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+      - xpack.security.enabled=false
+      - xpack.security.enrollment.enabled=false
+      - xpack.security.http.ssl.enabled=false
+      - xpack.security.transport.ssl.enabled=false
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536
+        hard: 65536
+    volumes:
+      - elasticsearch-data:/usr/share/elasticsearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:9200/_cluster/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    networks:
+      - dataflow-network
+
+  # ==========================================
+  # LOGSTASH - Log Processing Pipeline
+  # ==========================================
+  logstash:
+    image: docker.elastic.co/logstash/logstash:8.12.0
+    container_name: dataflow-logstash
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    ports:
+      - "5000:5000"    # TCP input
+      - "5044:5044"    # Beats input
+      - "9600:9600"    # Monitoring API
+    environment:
+      - "LS_JAVA_OPTS=-Xms256m -Xmx256m"
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+    volumes:
+      - ./logstash/pipeline:/usr/share/logstash/pipeline:ro
+      - ./logstash/config/logstash.yml:/usr/share/logstash/config/logstash.yml:ro
+      - logstash-data:/usr/share/logstash/data
+    command: logstash -f /usr/share/logstash/pipeline/logstash.conf
+    networks:
+      - dataflow-network
+
+  # ==========================================
+  # KIBANA - Visualization & Dashboards
+  # ==========================================
+  kibana:
+    image: docker.elastic.co/kibana/kibana:8.12.0
+    container_name: dataflow-kibana
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    ports:
+      - "5601:5601"
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+      - SERVER_NAME=dataflow-kibana
+      - SERVER_HOST=0.0.0.0
+      - ELASTICSEARCH_USERNAME=kibana_system
+      - XPACK_SECURITY_ENABLED=false
+      - XPACK_ENCRYPTEDSAVEDOBJECTS_ENCRYPTIONKEY=dataflow-platform-encryption-key-32-chars
+    volumes:
+      - kibana-data:/usr/share/kibana/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:5601/api/status || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    networks:
+      - dataflow-network
+
+  # ==========================================
+  # POSTGRESQL - Optional Read Models
+  # ==========================================
+  postgres:
+    image: postgres:15-alpine
+    container_name: dataflow-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: dataflow
+      POSTGRES_USER: dataflow
+      POSTGRES_PASSWORD: dataflow
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dataflow"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - dataflow-network
+
+  # ==========================================
+  # REDIS - Caching Layer (Optional)
+  # ==========================================
+  redis:
+    image: redis:7-alpine
+    container_name: dataflow-redis
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - dataflow-network
+
+# ==========================================
+# VOLUMES
+# ==========================================
 volumes:
   cassandra-data:
+    driver: local
+  zookeeper-data:
+    driver: local
+  zookeeper-logs:
+    driver: local
+  kafka-data:
+    driver: local
+  elasticsearch-data:
+    driver: local
+  logstash-data:
+    driver: local
+  kibana-data:
+    driver: local
+  postgres-data:
+    driver: local
+  redis-data:
+    driver: local
+
+# ==========================================
+# NETWORKS
+# ==========================================
+networks:
+  dataflow-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.25.0.0/16
+
+# ==========================================
+# USAGE INSTRUCTIONS
+# ==========================================
+# Start all services:
+#   docker-compose up -d
+#
+# Start specific services:
+#   docker-compose up -d cassandra kafka elasticsearch
+#
+# View logs:
+#   docker-compose logs -f [service-name]
+#
+# Stop all services:
+#   docker-compose down
+#
+# Stop and remove volumes (WARNING: deletes all data):
+#   docker-compose down -v
+#
+# Access UIs:
+#   Kafka UI:     http://localhost:8090
+#   Kibana:       http://localhost:5601
+#   Elasticsearch: http://localhost:9200
+#
+# Connect to services:
+#   Cassandra:    localhost:9042
+#   Kafka:        localhost:9093 (from host), kafka:9092 (from containers)
+#   PostgreSQL:   localhost:5432 (user: dataflow, password: dataflow)
+#   Redis:        localhost:6379
+#   Elasticsearch: localhost:9200
+#   Logstash:     localhost:5000 (TCP), localhost:5044 (Beats)
