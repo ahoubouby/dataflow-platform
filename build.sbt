@@ -31,6 +31,7 @@ lazy val logbackVersion        = "1.4.14" // Logging implementation
 lazy val scalaTestVersion      = "3.2.17" // Testing framework
 lazy val scalaMockVersion      = "5.2.0"  // Mocking framework
 lazy val testContainersVersion = "0.41.0" // Docker containers for tests
+lazy val kamonVersion          = "2.7.5"  // Metrics and tracing
 
 // ============================================
 // COMMON SETTINGS
@@ -118,6 +119,17 @@ lazy val dataflowCore = (project in file("dataflow-core"))
       "com.typesafe" % "config" % "1.4.3",
       // Validation library
       "com.wix" %% "accord-core" % "0.7.6",
+      // ==========================================
+      // METRICS AND MONITORING
+      // ==========================================
+      // Kamon core - metrics and tracing
+      "io.kamon" %% "kamon-core" % kamonVersion,
+      // Prometheus reporter - export metrics to Prometheus
+      "io.kamon" %% "kamon-prometheus" % kamonVersion,
+      // System metrics - CPU, memory, GC
+      "io.kamon" %% "kamon-system-metrics" % kamonVersion,
+      // Pekko instrumentation - actor metrics
+      "io.kamon" %% "kamon-akka" % kamonVersion, // Note: Uses Akka naming but works with Pekko
       // Actor TestKit
       "org.apache.pekko" %% "pekko-actor-testkit-typed" % pekkoVersion % Test,
       // Persistence TestKit (in-memory journal for tests)
