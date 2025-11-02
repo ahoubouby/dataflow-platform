@@ -102,5 +102,9 @@ final case class CheckResourceAvailability(
   replyTo: ActorRef[StatusReply[Boolean]]) extends CoordinatorCommand
 
 
-
-
+/**
+ * Add Stop command to coordinator commands.
+ */
+object CoordinatorCommand {
+  case object Stop extends CoordinatorCommand
+}

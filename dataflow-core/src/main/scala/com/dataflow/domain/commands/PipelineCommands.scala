@@ -122,3 +122,9 @@ final case class UpdateConfig(
 final case class BatchTimeout(
   pipelineId: String,
   batchId: String) extends Command
+
+/**
+ * Add StopEntity command to domain commands.
+ * This is used for graceful shutdown of pipeline entities.
+ */
+final case class StopEntity(pipelineId: String) extends Command

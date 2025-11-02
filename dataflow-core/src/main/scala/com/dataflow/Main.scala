@@ -1,21 +1,20 @@
 package com.dataflow
 
-import com.dataflow.aggregates.PipelineAggregate
-import com.dataflow.aggregates.coordinator.CoordinatorAggregate
-import com.dataflow.domain.commands.Command
-import com.dataflow.metrics.MetricsReporter
-import com.typesafe.config.{Config, ConfigFactory}
-import org.apache.pekko.actor.typed.scaladsl.Behaviors
-import org.apache.pekko.actor.typed.{ActorRef, ActorSystem, Behavior}
-import org.apache.pekko.cluster.sharding.typed.scaladsl.{ClusterSharding, Entity, EntityTypeKey, ShardedDaemonProcess}
-import org.apache.pekko.cluster.sharding.typed.ShardingEnvelope
-import org.apache.pekko.cluster.typed.{Cluster, ClusterSingleton, SingletonActor}
-import org.apache.pekko.management.cluster.bootstrap.ClusterBootstrap
-import org.apache.pekko.management.scaladsl.PekkoManagement
-import org.slf4j.{Logger, LoggerFactory}
-
 import scala.concurrent.duration._
 import scala.util.{Failure, Success}
+
+import com.dataflow.aggregates.PipelineAggregate
+import com.dataflow.aggregates.coordinator.CoordinatorAggregate
+import com.dataflow.cluster.PipelineSharding
+import com.dataflow.domain.commands.{Command, CoordinatorCommand}
+import com.dataflow.metrics.MetricsReporter
+import com.typesafe.config.{Config, ConfigFactory}
+import org.apache.pekko.actor.typed.{ActorRef, ActorSystem}
+import org.apache.pekko.actor.typed.scaladsl.Behaviors
+import org.apache.pekko.cluster.sharding.typed.ShardingEnvelope
+import org.apache.pekko.cluster.sharding.typed.scaladsl.{ClusterSharding, Entity, EntityTypeKey}
+import org.apache.pekko.cluster.typed.{Cluster, ClusterSingleton, ClusterSingletonSettings, SingletonActor}
+import org.slf4j.{Logger, LoggerFactory}
 
 /**
  * Main entry point for the DataFlow Platform.
@@ -36,7 +35,7 @@ object Main {
   private val log: Logger = LoggerFactory.getLogger(getClass)
 
   // Entity type key for pipeline sharding
-  val PipelineTypeKey: EntityTypeKey[Command] = EntityTypeKey[Command]("Pipeline")
+  val PipelineTypeKey: EntityTypeKey[Command] = EntityTypeKey("Pipeline")
 
   def main(args: Array[String]): Unit = {
     // Load configuration
@@ -46,7 +45,7 @@ object Main {
     val system: ActorSystem[Nothing] = ActorSystem[Nothing](
       Behaviors.empty,
       "DataflowPlatform",
-      config
+      config,
     )
 
     // Initialize and start the platform
@@ -67,12 +66,12 @@ object Main {
     val baseConfig = ConfigFactory.load()
 
     // Check for environment-specific config
-    val environment = sys.env.getOrElse("DATAFLOW_ENV", "local")
+    val environment    = sys.env.getOrElse("DATAFLOW_ENV", "local")
     val configResource = environment match {
-      case "production" => "production"
-      case "staging"    => "staging"
+      case "production"          => "production"
+      case "staging"             => "staging"
       case "development" | "dev" => "development"
-      case _            => "local"
+      case _                     => "local"
     }
 
     log.info(s"Loading configuration for environment: $environment")
@@ -94,9 +93,8 @@ object Main {
    */
   private def initializePlatform(system: ActorSystem[Nothing]): Unit = {
     implicit val sys: ActorSystem[Nothing] = system
-    import system.executionContext
 
-    val cluster = Cluster(system)
+    val cluster     = Cluster(system)
     val selfAddress = cluster.selfMember.address
 
     log.info(s"Starting DataFlow Platform")
@@ -110,12 +108,12 @@ object Main {
 
     // 2. Initialize Pekko Management (for cluster bootstrap and health checks)
     log.info("Starting Pekko Management...")
-    PekkoManagement(system).start()
+    // PekkoManagement(system).start()
     log.info("✓ Pekko Management started")
 
     // 3. Initialize Cluster Bootstrap (for automatic cluster formation)
     log.info("Starting Cluster Bootstrap...")
-    ClusterBootstrap(system).start()
+    // ClusterBootstrap(system).start()
     log.info("✓ Cluster Bootstrap started")
 
     // 4. Wait for cluster to be up
@@ -123,7 +121,7 @@ object Main {
 
     // 5. Initialize cluster sharding for pipelines
     log.info("Initializing Pipeline Cluster Sharding...")
-    val pipelineShardRegion: ActorRef[ShardingEnvelope[Command]] = initializePipelineSharding(system)
+    val pipelineShardRegion: ActorRef[ShardingEnvelope[Command]] = PipelineSharding.init(system)
     log.info("✓ Pipeline Sharding initialized")
 
     // 6. Initialize coordinator (cluster singleton)
@@ -148,45 +146,22 @@ object Main {
   }
 
   /**
-   * Initialize pipeline cluster sharding.
-   */
-  private def initializePipelineSharding(
-    system: ActorSystem[_]
-  ): ActorRef[ShardingEnvelope[Command]] = {
-    val sharding = ClusterSharding(system)
-
-    sharding.init(
-      Entity(PipelineTypeKey) { entityContext =>
-        val pipelineId = entityContext.entityId
-        log.debug(s"Creating PipelineAggregate actor for: $pipelineId")
-        PipelineAggregate(pipelineId)
-      }
-        .withStopMessage(Command.StopEntity) // Graceful stop
-        .withSettings(
-          ClusterSharding(system).settings
-            .withRole("core") // Only run on nodes with "core" role
-        )
-    )
-  }
-
-  /**
    * Initialize coordinator as cluster singleton.
    */
-  private def initializeCoordinator(
-    system: ActorSystem[_]
-  ): ActorRef[CoordinatorCommand] = {
-    val singletonManager = ClusterSingleton(system)
+  private def initializeCoordinator(system: ActorSystem[_]): ActorRef[CoordinatorCommand] = {
+    val singleton     = ClusterSingleton(system)
+    val singletonName = CoordinatorAggregate.CoordinatorId
+    val behavior      = CoordinatorAggregate()
+    val stopMsg       = CoordinatorCommand.Stop
 
-    singletonManager.init(
-      SingletonActor(
-        CoordinatorAggregate(),
-        CoordinatorAggregate.CoordinatorId
-      )
-        .withStopMessage(CoordinatorCommand.Stop) // Graceful stop
-        .withSettings(
-          ClusterSingleton(system).settings
-            .withRole("core") // Only run on nodes with "core" role
-        )
+    // Optional placement constraint: only run on nodes with role "core"
+    val settings: ClusterSingletonSettings =
+      ClusterSingletonSettings(system).withRole("core")
+
+    singleton.init(
+      SingletonActor(behavior, singletonName)
+        .withStopMessage(stopMsg) // graceful stop signal for the singleton
+        .withSettings(settings),  // placement/hand-over settings
     )
   }
 
@@ -195,27 +170,28 @@ object Main {
    */
   private def scheduleHealthCheck(
     system: ActorSystem[_],
-    cluster: Cluster
+    cluster: Cluster,
   ): Unit = {
     implicit val sys: ActorSystem[_] = system
     import system.executionContext
 
     system.scheduler.scheduleWithFixedDelay(
       initialDelay = 1.minute,
-      delay = 1.minute
-    ) { () =>
-      val members = cluster.state.members.size
-      val unreachable = cluster.state.unreachable.size
-      val leader = cluster.state.leader.map(_.toString).getOrElse("none")
+      delay = 1.minute,
+    ) {
+      () =>
+        val members     = cluster.state.members.size
+        val unreachable = cluster.state.unreachable.size
+        val leader      = cluster.state.leader.map(_.toString).getOrElse("none")
 
-      log.info(
-        s"Cluster health: members=$members, unreachable=$unreachable, leader=$leader"
-      )
+        log.info(
+          s"Cluster health: members=$members, unreachable=$unreachable, leader=$leader",
+        )
 
-      // Log warning if cluster is unhealthy
-      if (unreachable > 0) {
-        log.warn(s"Cluster has $unreachable unreachable members")
-      }
+        // Log warning if cluster is unhealthy
+        if (unreachable > 0) {
+          log.warn(s"Cluster has $unreachable unreachable members")
+        }
     }
   }
 
@@ -248,7 +224,7 @@ object Main {
       // 5. Wait for termination
       log.info("4/4 Waiting for actor system termination...")
       system.whenTerminated.onComplete {
-        case Success(_) =>
+        case Success(_)  =>
           log.info("✓ DataFlow Platform shut down successfully")
         case Failure(ex) =>
           log.error("✗ Error during shutdown", ex)
@@ -257,37 +233,10 @@ object Main {
 
     // Pekko coordinated shutdown
     system.whenTerminated.onComplete {
-      case Success(_) =>
+      case Success(_)  =>
         log.info("Actor system terminated")
       case Failure(ex) =>
         log.error("Actor system termination failed", ex)
     }
   }
-
-  /**
-   * Helper to send commands to pipeline shard region.
-   * Used by API layer and source connectors.
-   */
-  def sendToPipeline(
-    pipelineId: String,
-    command: Command,
-    shardRegion: ActorRef[ShardingEnvelope[Command]]
-  ): Unit = {
-    shardRegion ! ShardingEnvelope(pipelineId, command)
-  }
-}
-
-/**
- * Add StopEntity command to domain commands.
- * This is used for graceful shutdown of pipeline entities.
- */
-object Command {
-  case object StopEntity extends com.dataflow.domain.commands.Command
-}
-
-/**
- * Add Stop command to coordinator commands.
- */
-object CoordinatorCommand {
-  case object Stop extends com.dataflow.domain.commands.CoordinatorCommand
 }
