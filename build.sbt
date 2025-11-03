@@ -18,7 +18,7 @@ ThisBuild / organization := "com.dataflow"
 // Apache Pekko Versions
 // Pekko 1.0.x = Akka 2.6.x API compatibility
 // Pekko 1.1.x = Akka 2.8.x API compatibility (RECOMMENDED)
-lazy val pekkoVersion                     = "1.1.2" // Core Pekko framework
+lazy val pekkoVersion                     = "1.1.3" // Core Pekko framework
 lazy val pekkoHttpVersion                 = "1.1.0" // HTTP server/client
 lazy val pekkoPersistenceCassandraVersion = "1.1.0" // Cassandra persistence plugin
 lazy val pekkoConnectorsVersion           = "1.1.0" // Connectors (Alpakka equivalent)
@@ -398,3 +398,29 @@ lazy val dataflowProjections = (project in file("dataflow-projections"))
       "com.dimafeng" %% "testcontainers-scala-cassandra" % testContainersVersion % Test,
     ),
   )
+
+ThisBuild / dependencyOverrides ++= Seq(
+  "org.apache.pekko" %% "pekko-actor" % pekkoVersion,
+  "org.apache.pekko" %% "pekko-actor-typed" % pekkoVersion,
+  "org.apache.pekko" %% "pekko-stream" % pekkoVersion,
+  "org.apache.pekko" %% "pekko-stream-typed" % pekkoVersion,
+  "org.apache.pekko" %% "pekko-slf4j" % pekkoVersion,
+  "org.apache.pekko" %% "pekko-serialization-jackson" % pekkoVersion,
+  "org.apache.pekko" %% "pekko-cluster" % pekkoVersion,
+  "org.apache.pekko" %% "pekko-cluster-typed" % pekkoVersion,
+  "org.apache.pekko" %% "pekko-cluster-sharding" % pekkoVersion,
+  "org.apache.pekko" %% "pekko-cluster-sharding-typed" % pekkoVersion,
+  "org.apache.pekko" %% "pekko-distributed-data" % pekkoVersion,
+  "org.apache.pekko" %% "pekko-persistence" % pekkoVersion,
+  "org.apache.pekko" %% "pekko-persistence-typed" % pekkoVersion,
+  "org.apache.pekko" %% "pekko-actor-testkit-typed" % pekkoVersion,
+  "org.apache.pekko" %% "pekko-stream-testkit" % pekkoVersion,
+  "org.apache.pekko" %% "pekko-persistence-testkit" % pekkoVersion,
+  "org.apache.pekko" %% "pekko-multi-node-testkit" % pekkoVersion,
+  "org.apache.pekko" %% "pekko-testkit" % pekkoVersion,
+  "org.apache.pekko" %% "pekko-coordination" % pekkoVersion,
+  "org.apache.pekko" %% "pekko-cluster-tools" % pekkoVersion,
+  "org.apache.pekko" %% "pekko-protobuf-v3" % pekkoVersion,
+  "org.apache.pekko" %% "pekko-pki" % pekkoVersion,
+  "org.apache.pekko" %% "pekko-remote" % pekkoVersion,
+)

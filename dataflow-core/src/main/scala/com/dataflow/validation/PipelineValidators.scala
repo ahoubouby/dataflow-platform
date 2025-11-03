@@ -107,7 +107,7 @@ object PipelineValidators {
       cmd.batchId is notEmpty
       cmd.records is notEmpty
       cmd.records.size should be <= MaxBatchSize
-      // cmd.sourceOffset should be >= 0
+      cmd.sourceOffset should be >= 0L
   }
 
   /**

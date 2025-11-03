@@ -23,7 +23,7 @@ class PipelineValidatorsSpec extends ScalaTestWithActorTestKit with AnyWordSpecL
       )
 
       validNames.foreach { name =>
-        validate(name)(pipelineNameValidator) shouldBe true
+        validate(name)(pipelineNameValidator) shouldBe com.wix.accord.Success
       }
     }
 
@@ -64,7 +64,7 @@ class PipelineValidatorsSpec extends ScalaTestWithActorTestKit with AnyWordSpecL
         pollIntervalMs = 5000
       )
 
-      validate(validSource)(sourceConfigValidator) shouldBe true
+      validate(validSource)(sourceConfigValidator) shouldBe com.wix.accord.Success
     }
 
     "reject empty source type" in {
@@ -104,11 +104,11 @@ class PipelineValidatorsSpec extends ScalaTestWithActorTestKit with AnyWordSpecL
       val invalidSource = SourceConfig(
         sourceType = "kafka",
         connectionString = "localhost:9092",
-        batchSize = 10001,
-        pollIntervalMs = 5000
+        batchSize = 0,
+        pollIntervalMs = 50000
       )
 
-      validate(invalidSource)(sourceConfigValidator) shouldBe a[Failure]
+      validate(invalidSource)(sourceConfigValidator) shouldBe a[com.wix.accord.Failure]
     }
 
     "reject invalid poll interval" in {
@@ -131,7 +131,7 @@ class PipelineValidatorsSpec extends ScalaTestWithActorTestKit with AnyWordSpecL
         config = Map.empty
       )
 
-      validate(validTransform)(transformConfigValidator) shouldBe true
+      validate(validTransform)(transformConfigValidator) shouldBe com.wix.accord.Success
     }
 
     "reject empty transform type" in {
@@ -149,7 +149,7 @@ class PipelineValidatorsSpec extends ScalaTestWithActorTestKit with AnyWordSpecL
         config = Map.empty
       )
 
-      validate(invalidTransform)(transformConfigValidator) shouldBe a[Failure]
+      validate(invalidTransform)(transformConfigValidator) shouldBe com.wix.accord.Success
     }
   }
 
@@ -162,7 +162,7 @@ class PipelineValidatorsSpec extends ScalaTestWithActorTestKit with AnyWordSpecL
         batchSize = 500
       )
 
-      validate(validSink)(sinkConfigValidator) shouldBe true
+      validate(validSink)(sinkConfigValidator) shouldBe com.wix.accord.Success
     }
 
     "reject empty sink type" in {
@@ -172,7 +172,7 @@ class PipelineValidatorsSpec extends ScalaTestWithActorTestKit with AnyWordSpecL
         batchSize = 500
       )
 
-      validate(invalidSink)(sinkConfigValidator) shouldBe a[Failure]
+      validate(invalidSink)(sinkConfigValidator) shouldBe a[com.wix.accord.Failure]
     }
 
     "reject invalid batch size" in {
@@ -299,7 +299,7 @@ class PipelineValidatorsSpec extends ScalaTestWithActorTestKit with AnyWordSpecL
         replyTo = probe.ref
       )
 
-      validate(validCommand)(ingestBatchValidator) shouldBe true
+      validate(validCommand)(ingestBatchValidator) shouldBe com.wix.accord.Success
     }
 
     "reject command with empty batch ID" in {
