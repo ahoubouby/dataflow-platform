@@ -2,7 +2,6 @@ package com.dataflow.validation
 
 import com.dataflow.domain.commands._
 import com.dataflow.domain.models._
-import com.dataflow.utils.ValidationUtils.oneOf
 import com.wix.accord
 import com.wix.accord.dsl._
 
@@ -46,10 +45,13 @@ object PipelineValidators {
 
   /**
    * Validator for SourceConfig.
+   *
+   * Note: sourceType validation is not needed since it's now an ADT (sealed trait).
+   * The Scala type system guarantees that sourceType is one of the valid case objects
+   * (SourceType.File, SourceType.Kafka, etc.), making runtime validation redundant.
    */
   implicit val sourceConfigValidator = validator[SourceConfig] {
     source =>
-      // source.sourceType is(oneOf(SourceType.values: _*))
       source.connectionString is notEmpty
       source.batchSize should be >= MinBatchSize
       source.pollIntervalMs should be > 0

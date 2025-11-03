@@ -149,8 +149,9 @@ object Source {
   ): Source = {
     config.sourceType match {
       case SourceType.File  => FileSource(pipelineId, config)
-      // case SourceType.Kafka => KafkaSource(pipelineId, config) // your future impl
-      // case SourceType.Test  => new TestSourceAdapter(pipelineId, config) // as you had
+      case SourceType.Kafka => KafkaSource(pipelineId, config)
+      // case SourceType.Api      => ApiSource(pipelineId, config)
+      // case SourceType.Database => DatabaseSource(pipelineId, config)
       case other            => throw new IllegalArgumentException(s"Unsupported source type: $other")
     }
   }

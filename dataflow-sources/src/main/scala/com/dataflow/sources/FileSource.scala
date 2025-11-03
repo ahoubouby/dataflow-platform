@@ -40,7 +40,7 @@ import spray.json._
  *    SourceConfig(
  *      sourceType = "file",
  *      connectionString = "/path/to/files/.csv",
- *      config = Map(
+ *      options = Map(
  *        "format" -> "csv",           // csv, json, text
  *        "delimiter" -> ",",          // CSV delimiter
  *        "has-header" -> "true",      // CSV has header row
@@ -83,8 +83,10 @@ class FileSource(
 
   // State
   @volatile private var currentLineNumber: Long                                             = 0
+  @volatile private var resumeFromLineNumber: Long                                          = 0
   @volatile private var isRunning:         Boolean                                          = false
   @volatile private var killSwitch:        Option[org.apache.pekko.stream.UniqueKillSwitch] = None
+  @volatile private var headerColumns:     Option[Vector[String]]                           = None
 
   log.info(
     "Initialized FileSource id={} path={} format={} batchSize={}",
@@ -121,9 +123,6 @@ class FileSource(
     }
   }
 
-  // add near the other state vars
-  @volatile private var headerColumns: Option[Vector[String]] = None
-
   /**
    * CSV stream - reads CSV file and converts to DataRecords.
    */
@@ -139,13 +138,20 @@ class FileSource(
       )
       .map(_.decodeString(encoding))
       .zipWithIndex
+      .filter {
+        case (_, idx) =>
+          // Skip lines before resume offset
+          // If hasHeader, idx=0 is header, idx=1 is first data row (line 1)
+          // If resumeFromLineNumber=3, we want to skip idx < 3
+          idx >= resumeFromLineNumber
+      }
       .map {
         case (line, idx) =>
           currentLineNumber = idx
 
           // If we said there is a header, the very first line (idx == 0)
           // becomes our list of column names.
-          if (hasHeader && idx == 0) {
+          if (hasHeader && idx == 0 && resumeFromLineNumber == 0) {
             val cols = line.split(delimiter, -1).map(_.trim).toVector
             headerColumns = Some(cols)
             None // we don't emit a DataRecord for the header itself
@@ -175,7 +181,7 @@ class FileSource(
       }
 
       DataRecord(
-        id = UUID.randomUUID().toString,
+        id = data.getOrElse("id", UUID.randomUUID().toString),
         data = data,
         metadata = Map(
           "source"      -> "file",
@@ -203,6 +209,9 @@ class FileSource(
       )
       .map(_.decodeString(encoding))
       .zipWithIndex
+      .filter {
+        case (_, idx) => idx >= resumeFromLineNumber
+      }
       .map {
         case (line, idx) =>
           currentLineNumber = idx
@@ -262,6 +271,9 @@ class FileSource(
     )
     .map(_.decodeString(encoding))
     .zipWithIndex
+    .filter {
+      case (_, idx) => idx >= resumeFromLineNumber
+    }
     .map {
       case (line, idx) =>
         currentLineNumber = idx
@@ -367,9 +379,8 @@ class FileSource(
 
   override def resumeFrom(offset: Long): Unit = {
     log.info(s"Resuming FileSource from offset: $offset")
+    resumeFromLineNumber = offset
     currentLineNumber = offset
-    // Note: Would need to skip to this line in the file
-    // For simplicity, we restart from beginning for now
   }
 
   override def isHealthy: Boolean =
