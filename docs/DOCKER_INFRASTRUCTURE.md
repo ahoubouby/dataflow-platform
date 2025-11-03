@@ -44,7 +44,7 @@ Docker provides several key benefits for the DataFlow Platform:
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                    DataFlow Platform Application                 │
+│                    DataFlow Platform Application                │
 │              (Scala/Pekko - Event Sourced CQRS)                 │
 └─────────────────────────────────────────────────────────────────┘
          │              │              │              │
@@ -58,7 +58,7 @@ Docker provides several key benefits for the DataFlow Platform:
                            │
                            ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│                       Monitoring Layer                           │
+│                       Monitoring Layer                          │
 │         Prometheus (Metrics) + Grafana (Visualization)          │
 └─────────────────────────────────────────────────────────────────┘
 ```
