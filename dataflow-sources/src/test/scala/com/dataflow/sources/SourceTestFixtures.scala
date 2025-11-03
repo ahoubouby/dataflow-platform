@@ -1,14 +1,16 @@
 package com.dataflow.sources
 
-import com.dataflow.domain.models.{DataRecord, SourceConfig}
-import org.apache.pekko.actor.testkit.typed.scaladsl.{ActorTestKit, TestProbe}
-import org.apache.pekko.actor.typed.ActorSystem
-import org.scalatest.{BeforeAndAfterAll, Suite}
-
 import java.nio.file.{Files, Path, Paths}
 import java.time.Instant
 import java.util.UUID
+
+import scala.concurrent.duration.DurationInt
 import scala.jdk.CollectionConverters._
+
+import com.dataflow.domain.models.{DataRecord, SourceConfig, SourceType}
+import org.apache.pekko.actor.testkit.typed.scaladsl.{ActorTestKit, TestProbe}
+import org.apache.pekko.actor.typed.ActorSystem
+import org.scalatest.{BeforeAndAfterAll, Suite}
 
 /**
  * Test fixtures for source connector tests.
@@ -25,7 +27,7 @@ trait SourceTestFixtures extends BeforeAndAfterAll { this: Suite =>
   val testDataDir: Path = Paths.get(System.getProperty("java.io.tmpdir"), "dataflow-test-" + UUID.randomUUID())
 
   // Actor system for tests
-  val testKit: ActorTestKit = ActorTestKit()
+  val testKit:         ActorTestKit         = ActorTestKit()
   implicit val system: ActorSystem[Nothing] = testKit.system
 
   override def beforeAll(): Unit = {
@@ -46,42 +48,54 @@ trait SourceTestFixtures extends BeforeAndAfterAll { this: Suite =>
   def createTestDataFiles(): Unit = {
     // CSV with header
     val csvWithHeader = testDataDir.resolve("users.csv")
-    Files.write(csvWithHeader, List(
-      "id,name,age,email",
-      "1,Alice,30,alice@example.com",
-      "2,Bob,25,bob@example.com",
-      "3,Charlie,35,charlie@example.com",
-      "4,Diana,28,diana@example.com",
-      "5,Eve,32,eve@example.com"
-    ).asJava)
+    Files.write(
+      csvWithHeader,
+      List(
+        "id,name,age,email",
+        "1,Alice,30,alice@example.com",
+        "2,Bob,25,bob@example.com",
+        "3,Charlie,35,charlie@example.com",
+        "4,Diana,28,diana@example.com",
+        "5,Eve,32,eve@example.com",
+      ).asJava,
+    )
 
     // CSV without header
     val csvWithoutHeader = testDataDir.resolve("data.csv")
-    Files.write(csvWithoutHeader, List(
-      "100,Product A,50.00",
-      "101,Product B,75.50",
-      "102,Product C,25.99"
-    ).asJava)
+    Files.write(
+      csvWithoutHeader,
+      List(
+        "100,Product A,50.00",
+        "101,Product B,75.50",
+        "102,Product C,25.99",
+      ).asJava,
+    )
 
     // JSON (newline-delimited)
     val jsonFile = testDataDir.resolve("events.json")
-    Files.write(jsonFile, List(
-      """{"id":"evt-1","type":"login","user":"alice","timestamp":"2024-01-01T10:00:00Z"}""",
-      """{"id":"evt-2","type":"page_view","user":"bob","page":"/home","timestamp":"2024-01-01T10:01:00Z"}""",
-      """{"id":"evt-3","type":"click","user":"alice","element":"button1","timestamp":"2024-01-01T10:02:00Z"}""",
-      """{"id":"evt-4","type":"purchase","user":"charlie","amount":99.99,"timestamp":"2024-01-01T10:03:00Z"}""",
-      """{"id":"evt-5","type":"logout","user":"alice","timestamp":"2024-01-01T10:04:00Z"}"""
-    ).asJava)
+    Files.write(
+      jsonFile,
+      List(
+        """{"id":"evt-1","type":"login","user":"alice","timestamp":"2024-01-01T10:00:00Z"}""",
+        """{"id":"evt-2","type":"page_view","user":"bob","page":"/home","timestamp":"2024-01-01T10:01:00Z"}""",
+        """{"id":"evt-3","type":"click","user":"alice","element":"button1","timestamp":"2024-01-01T10:02:00Z"}""",
+        """{"id":"evt-4","type":"purchase","user":"charlie","amount":99.99,"timestamp":"2024-01-01T10:03:00Z"}""",
+        """{"id":"evt-5","type":"logout","user":"alice","timestamp":"2024-01-01T10:04:00Z"}""",
+      ).asJava,
+    )
 
     // Plain text file
     val textFile = testDataDir.resolve("logs.txt")
-    Files.write(textFile, List(
-      "2024-01-01 10:00:00 INFO Application started",
-      "2024-01-01 10:00:01 INFO Connected to database",
-      "2024-01-01 10:00:02 WARN Slow query detected",
-      "2024-01-01 10:00:03 ERROR Connection timeout",
-      "2024-01-01 10:00:04 INFO Recovery successful"
-    ).asJava)
+    Files.write(
+      textFile,
+      List(
+        "2024-01-01 10:00:00 INFO Application started",
+        "2024-01-01 10:00:01 INFO Connected to database",
+        "2024-01-01 10:00:02 WARN Slow query detected",
+        "2024-01-01 10:00:03 ERROR Connection timeout",
+        "2024-01-01 10:00:04 INFO Recovery successful",
+      ).asJava,
+    )
 
     // Empty file (edge case)
     val emptyFile = testDataDir.resolve("empty.csv")
@@ -89,8 +103,9 @@ trait SourceTestFixtures extends BeforeAndAfterAll { this: Suite =>
 
     // Large file (performance testing)
     val largeFile = testDataDir.resolve("large.csv")
-    val largeData = (1 to 10000).map { i =>
-      s"$i,User$i,${20 + (i % 50)},user$i@example.com"
+    val largeData = (1 to 10000).map {
+      i =>
+        s"$i,User$i,${20 + (i % 50)},user$i@example.com"
     }
     Files.write(largeFile, ("id,name,age,email" :: largeData.toList).asJava)
   }
@@ -113,19 +128,19 @@ trait SourceTestFixtures extends BeforeAndAfterAll { this: Suite =>
     filePath: String,
     format: String = "csv",
     hasHeader: Boolean = true,
-    batchSize: Int = 100
+    batchSize: Int = 100,
   ): SourceConfig = {
     SourceConfig(
-      sourceType = "file",
+      sourceType = SourceType.File,
       connectionString = filePath,
-      config = Map(
-        "format" -> format,
+      options = Map(
+        "format"     -> format,
         "has-header" -> hasHeader.toString,
-        "delimiter" -> ",",
-        "encoding" -> "UTF-8"
+        "delimiter"  -> ",",
+        "encoding"   -> "UTF-8",
       ),
       batchSize = batchSize,
-      pollIntervalMs = 1000
+      pollIntervalMs = 1000,
     )
   }
 
@@ -137,20 +152,20 @@ trait SourceTestFixtures extends BeforeAndAfterAll { this: Suite =>
     bootstrapServers: String = "localhost:9092",
     groupId: String = "test-group",
     format: String = "json",
-    batchSize: Int = 100
+    batchSize: Int = 100,
   ): SourceConfig = {
     SourceConfig(
-      sourceType = "kafka",
+      sourceType = SourceType.Kafka,
       connectionString = bootstrapServers,
-      config = Map(
-        "topic" -> topic,
-        "group-id" -> groupId,
-        "format" -> format,
-        "auto-offset-reset" -> "earliest",
-        "enable-auto-commit" -> "false"
+      options = Map(
+        "topic"              -> topic,
+        "group-id"           -> groupId,
+        "format"             -> format,
+        "auto-offset-reset"  -> "earliest",
+        "enable-auto-commit" -> "false",
       ),
       batchSize = batchSize,
-      pollIntervalMs = 1000
+      pollIntervalMs = 1000,
     )
   }
 
@@ -158,52 +173,53 @@ trait SourceTestFixtures extends BeforeAndAfterAll { this: Suite =>
    * Generate sample DataRecords for testing.
    */
   def generateSampleRecords(count: Int, recordType: String = "user"): List[DataRecord] = {
-    (1 to count).map { i =>
-      val (data, metadata) = recordType match {
-        case "user" =>
-          (
-            Map(
-              "id" -> i.toString,
-              "name" -> s"User$i",
-              "age" -> (20 + (i % 50)).toString,
-              "email" -> s"user$i@example.com"
-            ),
-            Map("type" -> "user", "index" -> i.toString)
-          )
+    (1 to count).map {
+      i =>
+        val (data, metadata) = recordType match {
+          case "user" =>
+            (
+              Map(
+                "id"     -> i.toString,
+                "name"   -> s"User$i",
+                "age"    -> (20 + (i % 50)).toString,
+                "email"  -> s"user$i@example.com",
+              ),
+              Map("type" -> "user", "index" -> i.toString),
+            )
 
-        case "event" =>
-          (
-            Map(
-              "event_type" -> (if (i % 2 == 0) "login" else "logout"),
-              "user_id" -> s"user-${i % 10}",
-              "timestamp" -> Instant.now().toString
-            ),
-            Map("type" -> "event", "index" -> i.toString)
-          )
+          case "event" =>
+            (
+              Map(
+                "event_type" -> (if (i % 2 == 0) "login" else "logout"),
+                "user_id"    -> s"user-${i % 10}",
+                "timestamp"  -> Instant.now().toString,
+              ),
+              Map("type"     -> "event", "index" -> i.toString),
+            )
 
-        case "order" =>
-          (
-            Map(
-              "order_id" -> UUID.randomUUID().toString,
-              "product" -> s"Product${i % 5}",
-              "quantity" -> (i % 10 + 1).toString,
-              "amount" -> (i * 10.5).toString
-            ),
-            Map("type" -> "order", "index" -> i.toString)
-          )
+          case "order" =>
+            (
+              Map(
+                "order_id" -> UUID.randomUUID().toString,
+                "product"  -> s"Product${i % 5}",
+                "quantity" -> (i % 10 + 1).toString,
+                "amount"   -> (i * 10.5).toString,
+              ),
+              Map("type"   -> "order", "index" -> i.toString),
+            )
 
-        case _ =>
-          (
-            Map("field1" -> s"value$i", "field2" -> i.toString),
-            Map("type" -> "generic", "index" -> i.toString)
-          )
-      }
+          case _ =>
+            (
+              Map("field1" -> s"value$i", "field2" -> i.toString),
+              Map("type"   -> "generic", "index"   -> i.toString),
+            )
+        }
 
-      DataRecord(
-        id = UUID.randomUUID().toString,
-        data = data,
-        metadata = metadata
-      )
+        DataRecord(
+          id = UUID.randomUUID().toString,
+          data = data,
+          metadata = metadata,
+        )
     }.toList
   }
 
@@ -222,8 +238,8 @@ trait SourceTestFixtures extends BeforeAndAfterAll { this: Suite =>
    */
   def eventually[T](
     condition: => Boolean,
-    timeout: scala.concurrent.duration.FiniteDuration = scala.concurrent.duration.Duration("5 seconds"),
-    interval: scala.concurrent.duration.FiniteDuration = scala.concurrent.duration.Duration("100 milliseconds")
+    timeout: scala.concurrent.duration.FiniteDuration = 5.seconds,
+    interval: scala.concurrent.duration.FiniteDuration = 5.seconds,
   ): Unit = {
     val deadline = timeout.fromNow
     while (!condition && deadline.hasTimeLeft()) {
@@ -243,7 +259,7 @@ object SourceTestFixtures {
    */
   def createTempFile(name: String, content: String): Path = {
     val tempDir = Files.createTempDirectory("dataflow-test")
-    val file = tempDir.resolve(name)
+    val file    = tempDir.resolve(name)
     Files.write(file, content.getBytes("UTF-8"))
     file
   }
@@ -251,7 +267,11 @@ object SourceTestFixtures {
   /**
    * Create temporary CSV file.
    */
-  def createTempCsvFile(name: String, rows: List[List[String]], hasHeader: Boolean = false): Path = {
+  def createTempCsvFile(
+    name: String,
+    rows: List[List[String]],
+    hasHeader: Boolean = false,
+  ): Path = {
     val content = rows.map(_.mkString(",")).mkString("\n")
     createTempFile(name, content)
   }

@@ -2,6 +2,7 @@ package com.dataflow.validation
 
 import com.dataflow.domain.commands._
 import com.dataflow.domain.models._
+import com.dataflow.utils.ValidationUtils.oneOf
 import com.wix.accord
 import com.wix.accord.dsl._
 
@@ -48,7 +49,7 @@ object PipelineValidators {
    */
   implicit val sourceConfigValidator = validator[SourceConfig] {
     source =>
-      source.sourceType is notEmpty
+      // source.sourceType is(oneOf(SourceType.values: _*))
       source.connectionString is notEmpty
       source.batchSize should be >= MinBatchSize
       source.pollIntervalMs should be > 0

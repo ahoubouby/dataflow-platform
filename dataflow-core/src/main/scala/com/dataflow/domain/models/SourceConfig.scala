@@ -6,8 +6,26 @@ import com.dataflow.serialization.CborSerializable
  * Source configuration (where data comes from).
  */
 final case class SourceConfig(
-  sourceType: String,       // "kafka", "file", "api", "database"
+  sourceType: SourceType,   // now strongly typed
   connectionString: String, // Connection details
   batchSize: Int,           // Records per batch
   pollIntervalMs: Int,      // Milliseconds between polls
+  options: Map[String, String] = Map.empty
 ) extends CborSerializable
+
+sealed trait SourceType extends Product with Serializable {
+  def name: String = this.productPrefix.toLowerCase
+}
+
+object SourceType {
+  case object Kafka extends SourceType
+  case object File extends SourceType
+  case object Api extends SourceType
+  case object Database extends SourceType
+
+  val values: Seq[SourceType] = Seq(Kafka, File, Api, Database)
+
+  /** Parse from string (case-insensitive). */
+  def fromString(s: String): Option[SourceType] =
+    values.find(_.name.equalsIgnoreCase(s.trim))
+}

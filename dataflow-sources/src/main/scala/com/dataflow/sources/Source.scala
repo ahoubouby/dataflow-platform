@@ -1,13 +1,13 @@
 package com.dataflow.sources
 
+import scala.concurrent.Future
 import com.dataflow.domain.commands.Command
-import com.dataflow.domain.models.{DataRecord, SourceConfig}
+import com.dataflow.domain.models.{DataRecord, SourceConfig, SourceType}
+import com.dataflow.sources.Source.SourceState.Starting
 import org.apache.pekko.Done
 import org.apache.pekko.actor.typed.ActorRef
 import org.apache.pekko.cluster.sharding.typed.ShardingEnvelope
-import org.apache.pekko.stream.scaladsl.Source as PekkoSource
-
-import scala.concurrent.Future
+import org.apache.pekko.stream.scaladsl.{Source => PekkoSource}
 
 /**
  * Source abstraction for data ingestion.
@@ -101,6 +101,8 @@ trait Source {
    * @return true if source is healthy and can read data, false otherwise
    */
   def isHealthy: Boolean
+
+  def state: Source.SourceState
 }
 
 /**
@@ -112,6 +114,7 @@ object Source {
    * Source lifecycle states.
    */
   sealed trait SourceState
+
   object SourceState {
     case object Initialized extends SourceState
     case object Starting extends SourceState
@@ -130,8 +133,7 @@ object Source {
     batchesSent: Long,
     errors: Long,
     lastReadTime: Option[java.time.Instant],
-    currentOffset: Long
-  )
+    currentOffset: Long)
 
   /**
    * Factory method to create sources from configuration.
@@ -140,12 +142,16 @@ object Source {
    * @param config Source configuration
    * @return Source instance
    */
-  def apply(pipelineId: String, config: SourceConfig)(implicit system: org.apache.pekko.actor.typed.ActorSystem[_]): Source = {
-    config.sourceType.toLowerCase match {
-      case "file"  => FileSource(pipelineId, config)
-      case "kafka" => KafkaSource(pipelineId, config)
-      case "test"  => new TestSourceAdapter(pipelineId, config)
-      case other   => throw new IllegalArgumentException(s"Unsupported source type: $other")
+  def apply(
+    pipelineId: String,
+    config: SourceConfig,
+  )(implicit system: org.apache.pekko.actor.typed.ActorSystem[_],
+  ): Source = {
+    config.sourceType match {
+      case SourceType.File  => FileSource(pipelineId, config)
+      // case SourceType.Kafka => KafkaSource(pipelineId, config) // your future impl
+      // case SourceType.Test  => new TestSourceAdapter(pipelineId, config) // as you had
+      case other            => throw new IllegalArgumentException(s"Unsupported source type: $other")
     }
   }
 }
@@ -155,31 +161,30 @@ object Source {
  */
 private class TestSourceAdapter(
   val pipelineId: String,
-  val config: SourceConfig
+  val config: SourceConfig,
 )(implicit system: org.apache.pekko.actor.typed.ActorSystem[_]) extends Source {
 
   override def sourceId: String = s"test-source-$pipelineId"
 
-  override def stream(): PekkoSource[DataRecord, Future[Done]] = {
+  override def stream(): PekkoSource[DataRecord, Future[Done]] =
     // TestSource is actor-based, so we'd need to adapt it
     // For now, return empty source
     PekkoSource.empty[DataRecord].mapMaterializedValue(_ => Future.successful(Done))
-  }
 
-  override def start(pipelineShardRegion: ActorRef[ShardingEnvelope[Command]]): Future[Done] = {
+  override def start(pipelineShardRegion: ActorRef[ShardingEnvelope[Command]]): Future[Done] =
     // Spawn TestSource actor
     // testSource ! TestSource.Start
     Future.successful(Done)
-  }
 
-  override def stop(): Future[Done] = {
+  override def stop(): Future[Done] =
     // testSource ! TestSource.Stop
     Future.successful(Done)
-  }
 
   override def currentOffset(): Long = 0
 
   override def resumeFrom(offset: Long): Unit = ()
 
   override def isHealthy: Boolean = true
+
+  override def state: Source.SourceState = Starting
 }
