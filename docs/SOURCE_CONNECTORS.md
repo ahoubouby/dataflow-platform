@@ -9,6 +9,7 @@ This guide covers the data source connectors available in the DataFlow Platform,
 - [File Source](#file-source)
 - [Kafka Source](#kafka-source)
 - [API Source](#api-source)
+- [WebSocket Source](#websocket-source)
 - [Database Source](#database-source)
 - [Test Source](#test-source)
 - [Configuration Reference](#configuration-reference)
@@ -653,6 +654,50 @@ Map(
 )
 ```
 
+#### Rate Limiting
+
+The API Source supports built-in rate limiting to prevent overwhelming external APIs:
+
+```scala
+Map(
+  "rate-limit-enabled" -> "true",               // Enable rate limiting
+  "rate-limit-requests-per-second" -> "10",     // Max 10 requests/second
+  "rate-limit-burst" -> "20"                    // Allow bursts up to 20
+)
+```
+
+**How it works**:
+- Uses token bucket algorithm via Pekko Streams throttle
+- `requests-per-second`: Sustained rate limit
+- `burst`: Allows temporary bursts above sustained rate
+- `ThrottleMode.Shaping`: Smooths out request distribution
+
+**When to use**:
+- External APIs with strict rate limits
+- Preventing 429 (Too Many Requests) errors
+- Protecting third-party services
+- Compliance with API terms of service
+
+**Example with rate limiting**:
+```scala
+SourceConfig(
+  sourceType = SourceType.Api,
+  connectionString = "https://api.example.com/data",
+  options = Map(
+    "method" -> "GET",
+    "auth-type" -> "bearer",
+    "auth-token" -> "your-token",
+    "rate-limit-enabled" -> "true",
+    "rate-limit-requests-per-second" -> "5",  // Max 5 req/s
+    "rate-limit-burst" -> "10",               // Burst up to 10
+    "pagination-type" -> "offset",
+    "pagination-size" -> "100"
+  ),
+  batchSize = 100,
+  pollIntervalMs = 1000  // Poll every second, but rate limited to 5/s
+)
+```
+
 ### Complete Example: GitHub API
 
 ```scala
@@ -725,6 +770,279 @@ Key metrics to monitor:
 - Verify Content-Type header
 - Enable debug logging to see raw response
 - Check for API version changes
+
+## WebSocket Source
+
+The WebSocket Source connector provides real-time streaming data ingestion from WebSocket APIs. Unlike the REST API Source which polls periodically, WebSocket Source maintains a persistent connection for instant data delivery.
+
+### Key Features
+
+- **Real-Time Streaming**: Persistent WebSocket connection for instant data delivery
+- **Automatic Reconnection**: Exponential backoff on connection failures
+- **Heartbeat/Keep-Alive**: Periodic ping-pong to maintain connection
+- **Authentication**: Query params, headers, or bearer tokens
+- **Message Formats**: JSON or plain text
+- **Backpressure Handling**: Built-in via Pekko Streams
+- **Error Recovery**: Graceful handling of connection drops
+
+### Configuration
+
+#### Basic WebSocket Configuration
+
+```scala
+SourceConfig(
+  sourceType = SourceType.Api,  // WebSocket uses Api source type
+  connectionString = "wss://stream.example.com/events",
+  options = Map(
+    "source-impl" -> "websocket",      // Specify WebSocket implementation
+    "message-format" -> "json",         // or "text"
+    "auth-type" -> "none"
+  ),
+  batchSize = 100,
+  pollIntervalMs = 0  // Not used for WebSocket
+)
+```
+
+#### Authentication
+
+**No Authentication**:
+```scala
+Map(
+  "auth-type" -> "none"
+)
+```
+
+**Query Parameter Authentication**:
+```scala
+Map(
+  "auth-type" -> "query",
+  "auth-token" -> "your-token",
+  "auth-param-name" -> "token"  // Query param name
+)
+// Generates: wss://api.example.com/stream?token=your-token
+```
+
+**Header-Based Authentication**:
+```scala
+Map(
+  "auth-type" -> "header",
+  "auth-token" -> "your-api-key",
+  "auth-param-name" -> "X-API-Key"
+)
+```
+
+**Bearer Token**:
+```scala
+Map(
+  "auth-type" -> "bearer",
+  "auth-token" -> "your-jwt-token"
+)
+```
+
+#### Heartbeat Configuration
+
+Keep the connection alive with periodic pings:
+
+```scala
+Map(
+  "heartbeat-interval" -> "30"  // Send ping every 30 seconds
+)
+```
+
+Set to `"0"` to disable heartbeat (not recommended for long-lived connections).
+
+#### Reconnection Strategy
+
+Configure automatic reconnection with exponential backoff:
+
+```scala
+Map(
+  "reconnect-min-backoff" -> "1",      // Start with 1 second
+  "reconnect-max-backoff" -> "30",     // Cap at 30 seconds
+  "reconnect-max-restarts" -> "-1"     // Infinite retries (-1), or set a limit
+)
+```
+
+**Backoff behavior**:
+- First retry: After 1 second
+- Second retry: After ~2 seconds (1 * 2^1 * random factor)
+- Third retry: After ~4 seconds
+- ...continues doubling until max-backoff
+
+#### Message Formats
+
+**JSON Messages**:
+```scala
+Map(
+  "message-format" -> "json"
+)
+```
+
+Expected JSON structure:
+```json
+{
+  "id": "event-123",
+  "type": "user_action",
+  "data": {...}
+}
+```
+
+If `id` field is missing, a UUID is generated automatically.
+
+**Text Messages**:
+```scala
+Map(
+  "message-format" -> "text"
+)
+```
+
+Each text message becomes a DataRecord with `message` field.
+
+### Complete Examples
+
+#### Example 1: Crypto Price Stream
+
+```scala
+SourceConfig(
+  sourceType = SourceType.Api,
+  connectionString = "wss://stream.binance.com:9443/ws/btcusdt@trade",
+  options = Map(
+    "source-impl" -> "websocket",
+    "message-format" -> "json",
+    "auth-type" -> "none",
+    "heartbeat-interval" -> "30",
+    "reconnect-min-backoff" -> "1",
+    "reconnect-max-backoff" -> "60",
+    "reconnect-max-restarts" -> "-1"
+  ),
+  batchSize = 50,
+  pollIntervalMs = 0
+)
+```
+
+#### Example 2: Authenticated Event Stream
+
+```scala
+SourceConfig(
+  sourceType = SourceType.Api,
+  connectionString = "wss://api.example.com/events",
+  options = Map(
+    "source-impl" -> "websocket",
+    "message-format" -> "json",
+    "auth-type" -> "bearer",
+    "auth-token" -> System.getenv("WS_TOKEN"),
+    "heartbeat-interval" -> "20",
+    "reconnect-min-backoff" -> "2",
+    "reconnect-max-backoff" -> "30",
+    "reconnect-max-restarts" -> "10"  // Give up after 10 retries
+  ),
+  batchSize = 100,
+  pollIntervalMs = 0
+)
+```
+
+#### Example 3: Simple Text Stream
+
+```scala
+SourceConfig(
+  sourceType = SourceType.Api,
+  connectionString = "ws://localhost:8080/logs",
+  options = Map(
+    "source-impl" -> "websocket",
+    "message-format" -> "text",
+    "auth-type" -> "none",
+    "heartbeat-interval" -> "0"  // No heartbeat needed
+  ),
+  batchSize = 200,
+  pollIntervalMs = 0
+)
+```
+
+### Monitoring
+
+Key metrics to monitor:
+
+- **Connection Status**: Up/down state
+- **Reconnection Count**: How many times reconnected
+- **Message Rate**: Messages received per second
+- **Message Size**: Bytes received
+- **Parse Errors**: Failed message parsing
+- **Latency**: Time from server send to client receive (if timestamp in message)
+
+### Best Practices
+
+1. **Always Enable Heartbeat**: Use `heartbeat-interval` to detect dead connections
+2. **Set Reasonable Backoff**: Start small (1-2s), cap at reasonable max (30-60s)
+3. **Monitor Connection Health**: Track reconnection frequency
+4. **Handle Partial Messages**: WebSocket can send streamed messages (handled automatically)
+5. **Secure Connections**: Use `wss://` (secure) instead of `ws://` in production
+6. **Authentication Tokens**: Store in environment variables, refresh if needed
+7. **Backpressure**: Use appropriate `batchSize` to handle bursts
+
+### Troubleshooting
+
+#### Problem: "WebSocket upgrade failed"
+
+**Cause**: Connection could not be established
+
+**Solution**:
+- Verify URL is correct (wss:// or ws://)
+- Check firewall/network allows WebSocket connections
+- Verify authentication credentials
+- Check server supports WebSocket protocol
+
+#### Problem: Frequent disconnections/reconnections
+
+**Cause**: Network instability or server-side issues
+
+**Solution**:
+- Enable heartbeat to detect dead connections faster
+- Increase `reconnect-max-backoff` for less aggressive retries
+- Check server logs for errors
+- Verify network stability
+
+#### Problem: "Failed to parse JSON message"
+
+**Cause**: Message format doesn't match expected JSON
+
+**Solution**:
+- Verify `message-format` is set correctly
+- Check actual messages received (enable debug logging)
+- Ensure server sends valid JSON
+- Handle both strict and streamed text messages
+
+#### Problem: High memory usage
+
+**Cause**: Messages arriving faster than processing
+
+**Solution**:
+- Reduce `batchSize` for more frequent pipeline sends
+- Check pipeline processing performance
+- Monitor backpressure metrics
+- Consider adding throttling if needed
+
+### WebSocket vs REST API Source
+
+| Feature | WebSocket Source | REST API Source |
+|---------|------------------|-----------------|
+| Connection | Persistent | Request/response |
+| Latency | Instant (< 100ms) | Poll interval dependent |
+| Server Load | Low (one connection) | Higher (repeated requests) |
+| Use Case | Real-time events | Periodic data fetch |
+| Complexity | Medium | Simple |
+| Reliability | Requires reconnection logic | Stateless |
+
+**Choose WebSocket when**:
+- Need real-time data (< 1 second latency)
+- High-frequency updates (multiple per second)
+- Server supports push notifications
+- Examples: Stock tickers, chat messages, live logs
+
+**Choose REST API when**:
+- Periodic data fetch is acceptable (minutes/hours)
+- Server doesn't support WebSocket
+- Simpler to implement and debug
+- Examples: Daily reports, user lists, config data
 
 ## Database Source
 

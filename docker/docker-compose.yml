@@ -226,6 +226,31 @@ services:
       - dataflow-network
 
   # ==========================================
+  # FILEBEAT - Log Shipper
+  # ==========================================
+  filebeat:
+    image: docker.elastic.co/beats/filebeat:8.12.0
+    container_name: dataflow-filebeat
+    user: root
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+      logstash:
+        condition: service_started
+    volumes:
+      - ./filebeat/filebeat.yml:/usr/share/filebeat/filebeat.yml:ro
+      - ../logs:/var/log/dataflow:ro
+      - filebeat-data:/usr/share/filebeat/data
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    command: filebeat -e -strict.perms=false
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+      - LOGSTASH_HOSTS=logstash:5044
+    networks:
+      - dataflow-network
+
+  # ==========================================
   # POSTGRESQL - Optional Read Models
   # ==========================================
   postgres:
@@ -348,6 +373,8 @@ volumes:
   logstash-data:
     driver: local
   kibana-data:
+    driver: local
+  filebeat-data:
     driver: local
   postgres-data:
     driver: local

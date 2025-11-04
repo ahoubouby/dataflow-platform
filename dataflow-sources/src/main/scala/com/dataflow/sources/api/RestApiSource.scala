@@ -38,16 +38,19 @@ import spray.json._
  *      sourceType = SourceType.Api,
  *      connectionString = "https://api.example.com/data",
  *      options = Map(
- *        "method" -> "GET",                   // HTTP method
- *        "auth-type" -> "bearer",             // none, basic, bearer, api-key
- *        "auth-token" -> "your-token",        // For bearer/api-key auth
- *        "auth-username" -> "user",           // For basic auth
- *        "auth-password" -> "pass",           // For basic auth
- *        "pagination-type" -> "offset",       // none, offset, cursor, page
- *        "pagination-param" -> "offset",      // Query param name
- *        "pagination-size-param" -> "limit",  // Size param name
- *        "pagination-size" -> "100",          // Records per request
- *        "response-path" -> "data",           // JSON path to data array
+ *        "method" -> "GET",                               // HTTP method
+ *        "auth-type" -> "bearer",                         // none, basic, bearer, api-key
+ *        "auth-token" -> "your-token",                    // For bearer/api-key auth
+ *        "auth-username" -> "user",                       // For basic auth
+ *        "auth-password" -> "pass",                       // For basic auth
+ *        "pagination-type" -> "offset",                   // none, offset, cursor, page
+ *        "pagination-param" -> "offset",                  // Query param name
+ *        "pagination-size-param" -> "limit",              // Size param name
+ *        "pagination-size" -> "100",                      // Records per request
+ *        "response-path" -> "data",                       // JSON path to data array
+ *        "rate-limit-enabled" -> "true",                  // Enable rate limiting
+ *        "rate-limit-requests-per-second" -> "10",        // Max requests per second
+ *        "rate-limit-burst" -> "20",                      // Burst capacity
  *        "headers" -> """{"Content-Type":"application/json"}"""
  *      ),
  *      batchSize = 100,
@@ -95,6 +98,16 @@ class RestApiSource(
   private val responsePath: String =
     config.options.getOrElse("response-path", "data")
 
+  // Rate limiting configuration
+  private val rateLimitEnabled: Boolean =
+    config.options.getOrElse("rate-limit-enabled", "false").toBoolean
+
+  private val rateLimitRequestsPerSecond: Int =
+    config.options.getOrElse("rate-limit-requests-per-second", "10").toInt
+
+  private val rateLimitBurst: Int =
+    config.options.getOrElse("rate-limit-burst", "20").toInt
+
   // State
   @volatile private var currentPage:   Long                                             = 0
   @volatile private var currentCursor: Option[String]                                   = None
@@ -122,8 +135,27 @@ class RestApiSource(
 
   private def buildDataStream(): PekkoSource[DataRecord, NotUsed] = {
     // Create a tick source that polls the API at regular intervals
-    PekkoSource
+    val tickSource = PekkoSource
       .tick(0.seconds, config.pollIntervalMs.milliseconds, ())
+
+    // Apply rate limiting if enabled
+    val rateLimitedSource = if (rateLimitEnabled) {
+      log.info(
+        "Rate limiting enabled: {} req/s with burst of {}",
+        rateLimitRequestsPerSecond,
+        rateLimitBurst,
+      )
+      tickSource.throttle(
+        rateLimitRequestsPerSecond,
+        1.second,
+        rateLimitBurst,
+        org.apache.pekko.stream.ThrottleMode.Shaping,
+      )
+    } else {
+      tickSource
+    }
+
+    rateLimitedSource
       .mapAsync(1) {
         _ =>
           fetchFromApi()
