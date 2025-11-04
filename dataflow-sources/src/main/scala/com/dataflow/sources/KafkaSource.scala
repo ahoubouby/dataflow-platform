@@ -191,7 +191,7 @@ class KafkaSource(
         .orElse(Option(key).filter(_.nonEmpty))
         .getOrElse(UUID.randomUUID().toString)
 
-      DataRecord(
+      val record = DataRecord(
         id = id,
         data = data - "id", // Remove id from data fields
         metadata = Map(
@@ -206,9 +206,18 @@ class KafkaSource(
           "timestamp"       -> Instant.now().toString,
         ),
       )
+
+      // Record metrics
+      SourceMetricsReporter.recordRecordsRead(pipelineId, "kafka", 1)
+      SourceMetricsReporter.recordBytesRead(pipelineId, "kafka", value.getBytes("UTF-8").length.toLong)
+      SourceMetricsReporter.recordKafkaMessagesConsumed(pipelineId, topic, 1)
+      SourceMetricsReporter.updateKafkaOffset(pipelineId, topic, partition, offset)
+
+      record
     } match {
       case Success(record) => Some(record)
       case Failure(ex)     =>
+        SourceMetricsReporter.recordParseError(pipelineId, "kafka", "json")
         log.warn(
           "Failed to parse JSON message from topic={} partition={} offset={}: {}",
           topic,
@@ -232,6 +241,12 @@ class KafkaSource(
     offset: Long,
     timestamp: Long,
   ): Option[DataRecord] = {
+    // Record metrics
+    SourceMetricsReporter.recordRecordsRead(pipelineId, "kafka", 1)
+    SourceMetricsReporter.recordBytesRead(pipelineId, "kafka", value.getBytes("UTF-8").length.toLong)
+    SourceMetricsReporter.recordKafkaMessagesConsumed(pipelineId, topic, 1)
+    SourceMetricsReporter.updateKafkaOffset(pipelineId, topic, partition, offset)
+
     Some(
       DataRecord(
         id = Option(key).filter(_.nonEmpty).getOrElse(UUID.randomUUID().toString),
@@ -265,6 +280,9 @@ class KafkaSource(
     } else {
       log.info("Starting KafkaSource {} for topic {}", sourceId, topic)
       isRunning = true
+
+      // Update health metrics
+      SourceMetricsReporter.updateHealth(pipelineId, "kafka", isHealthy = true)
 
       // Create stream with batching and committing
       val (switch, doneF) = Consumer
@@ -306,9 +324,13 @@ class KafkaSource(
         case Success(_)  =>
           log.info("KafkaSource {} completed", sourceId)
           isRunning = false
+          SourceMetricsReporter.updateHealth(pipelineId, "kafka", isHealthy = false)
         case Failure(ex) =>
           log.error("KafkaSource {} failed: {}", sourceId, ex.getMessage, ex)
           isRunning = false
+          SourceMetricsReporter.recordError(pipelineId, "kafka", "stream_failure")
+          SourceMetricsReporter.recordConnectionError(pipelineId, "kafka")
+          SourceMetricsReporter.updateHealth(pipelineId, "kafka", isHealthy = false)
       }
 
       Future.successful(Done)
@@ -326,8 +348,9 @@ class KafkaSource(
       return Future.successful(Done)
     }
 
-    val batchId = UUID.randomUUID().toString
-    val offset  = currentKafkaOffset
+    val batchId     = UUID.randomUUID().toString
+    val offset      = currentKafkaOffset
+    val sendTimeMs  = System.currentTimeMillis()
 
     log.debug(
       "Sending batch: batchId={} records={} offset={} topic={}",
@@ -347,6 +370,11 @@ class KafkaSource(
 
     pipelineShardRegion ! ShardingEnvelope(pipelineId, command)
 
+    // Record batch metrics
+    val latencyMs = System.currentTimeMillis() - sendTimeMs
+    SourceMetricsReporter.recordBatchSent(pipelineId, "kafka", records.size, latencyMs)
+    SourceMetricsReporter.updateOffset(pipelineId, "kafka", offset)
+
     Future.successful(Done)
   }
 
@@ -364,6 +392,9 @@ class KafkaSource(
     killSwitch.foreach(_.shutdown())
     killSwitch = None
     isRunning = false
+
+    // Update health metrics
+    SourceMetricsReporter.updateHealth(pipelineId, "kafka", isHealthy = false)
 
     Future.successful(Done)
   }

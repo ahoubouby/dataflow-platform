@@ -136,6 +136,8 @@ class DatabaseSource(
    * Execute SQL query and fetch results.
    */
   private def executeQuery(): List[DataRecord] = {
+    val startTimeMs = System.currentTimeMillis()
+
     Using.Manager {
       use =>
         val connection = use(createConnection())
@@ -149,11 +151,24 @@ class DatabaseSource(
         fetchResults(resultSet)
     } match {
       case Success(records) =>
-        log.debug("Fetched {} records from database", records.size)
+        val executionTimeMs = System.currentTimeMillis() - startTimeMs
+
+        log.debug("Fetched {} records from database in {} ms", records.size, executionTimeMs)
+
+        // Record database query metrics
+        SourceMetricsReporter.recordDatabaseQuery(
+          pipelineId,
+          "select",
+          executionTimeMs,
+          records.size,
+        )
+
         records
 
       case Failure(ex) =>
         log.error("Failed to execute database query: {}", ex.getMessage, ex)
+        SourceMetricsReporter.recordConnectionError(pipelineId, "database")
+        SourceMetricsReporter.recordError(pipelineId, "database", "query_failure")
         List.empty
     }
   }
@@ -245,7 +260,27 @@ class DatabaseSource(
         colName =>
           val colValue = resultSet.getObject(colName)
           lastIncrementalValue = Some(colValue)
+
+          // Update watermark metrics
+          incrementalType match {
+            case "timestamp" =>
+              colValue match {
+                case ts: Timestamp =>
+                  SourceMetricsReporter.updateDatabaseWatermark(pipelineId, ts.getTime)
+                case _ => // ignore
+              }
+            case "id" =>
+              colValue match {
+                case long: Long => SourceMetricsReporter.updateDatabaseWatermark(pipelineId, long)
+                case int: Int   => SourceMetricsReporter.updateDatabaseWatermark(pipelineId, int.toLong)
+                case _          => // ignore
+              }
+            case _ => // ignore
+          }
       }
+
+      // Record metrics
+      SourceMetricsReporter.recordRecordsRead(pipelineId, "database", 1)
 
       val record = DataRecord(
         id = id,
@@ -280,6 +315,9 @@ class DatabaseSource(
       log.info("Starting DatabaseSource {} for {}", sourceId, jdbcUrl)
       isRunning = true
 
+      // Update health metrics
+      SourceMetricsReporter.updateHealth(pipelineId, "database", isHealthy = true)
+
       val (switch, doneF) =
         buildDataStream()
           .viaMat(KillSwitches.single)(Keep.right)
@@ -294,9 +332,12 @@ class DatabaseSource(
         case Success(_)  =>
           log.info("DatabaseSource {} completed", sourceId)
           isRunning = false
+          SourceMetricsReporter.updateHealth(pipelineId, "database", isHealthy = false)
         case Failure(ex) =>
           log.error("DatabaseSource {} failed: {}", sourceId, ex.getMessage, ex)
           isRunning = false
+          SourceMetricsReporter.recordError(pipelineId, "database", "stream_failure")
+          SourceMetricsReporter.updateHealth(pipelineId, "database", isHealthy = false)
       }
 
       Future.successful(Done)
@@ -314,8 +355,9 @@ class DatabaseSource(
       return Future.successful(Done)
     }
 
-    val batchId = UUID.randomUUID().toString
-    val offset  = recordCount
+    val batchId     = UUID.randomUUID().toString
+    val offset      = recordCount
+    val sendTimeMs  = System.currentTimeMillis()
 
     log.debug(
       "Sending batch: batchId={} records={} offset={} url={}",
@@ -335,6 +377,11 @@ class DatabaseSource(
 
     pipelineShardRegion ! ShardingEnvelope(pipelineId, command)
 
+    // Record batch metrics
+    val latencyMs = System.currentTimeMillis() - sendTimeMs
+    SourceMetricsReporter.recordBatchSent(pipelineId, "database", records.size, latencyMs)
+    SourceMetricsReporter.updateOffset(pipelineId, "database", offset)
+
     Future.successful(Done)
   }
 
@@ -352,6 +399,9 @@ class DatabaseSource(
     killSwitch.foreach(_.shutdown())
     killSwitch = None
     isRunning = false
+
+    // Update health metrics
+    SourceMetricsReporter.updateHealth(pipelineId, "database", isHealthy = false)
 
     Future.successful(Done)
   }

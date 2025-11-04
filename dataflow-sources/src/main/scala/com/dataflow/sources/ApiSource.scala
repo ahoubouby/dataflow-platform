@@ -136,28 +136,45 @@ class ApiSource(
    * Fetch data from API.
    */
   private def fetchFromApi(): Future[List[DataRecord]] = {
-    val request = buildRequest()
+    val request     = buildRequest()
+    val startTimeMs = System.currentTimeMillis()
 
     Http()
       .singleRequest(request)
       .flatMap {
         response =>
+          val responseTimeMs = System.currentTimeMillis() - startTimeMs
+          val statusCode     = response.status.intValue()
+
+          // Record API request metrics
+          SourceMetricsReporter.recordApiRequest(
+            pipelineId,
+            apiUrl,
+            method.value,
+            responseTimeMs,
+            statusCode,
+          )
+
           response.status match {
             case StatusCodes.OK =>
               Unmarshal(response.entity).to[String].map {
                 body =>
+                  SourceMetricsReporter.recordBytesRead(pipelineId, "api", body.getBytes("UTF-8").length.toLong)
                   parseResponse(body)
               }
 
             case status =>
               response.discardEntityBytes()
               log.warn("API request failed with status: {}", status)
+              SourceMetricsReporter.recordError(pipelineId, "api", s"http_${statusCode}")
               Future.successful(List.empty)
           }
       }
       .recover {
         case ex =>
           log.error("API request failed: {}", ex.getMessage)
+          SourceMetricsReporter.recordConnectionError(pipelineId, "api")
+          SourceMetricsReporter.recordError(pipelineId, "api", "connection_failure")
           List.empty
       }
   }
@@ -258,12 +275,14 @@ class ApiSource(
 
         case _ =>
           log.warn("Response path '{}' did not return array", responsePath)
+          SourceMetricsReporter.recordError(pipelineId, "api", "invalid_response_path")
           List.empty
       }
     } match {
       case Success(records) => records
       case Failure(ex)      =>
         log.warn("Failed to parse API response: {}", ex.getMessage)
+        SourceMetricsReporter.recordParseError(pipelineId, "api", "json")
         List.empty
     }
   }
@@ -281,6 +300,9 @@ class ApiSource(
       .get("id")
       .map(_.toString.stripPrefix("\"").stripSuffix("\""))
       .getOrElse(UUID.randomUUID().toString)
+
+    // Record metrics
+    SourceMetricsReporter.recordRecordsRead(pipelineId, "api", 1)
 
     DataRecord(
       id = id,
@@ -304,6 +326,7 @@ class ApiSource(
       case "offset" | "page" =>
         if (recordCount > 0) {
           currentPage += 1
+          SourceMetricsReporter.updateApiPaginationPage(pipelineId, currentPage.toInt)
         }
 
       case "cursor" =>
@@ -332,6 +355,9 @@ class ApiSource(
       log.info("Starting ApiSource {} for {}", sourceId, apiUrl)
       isRunning = true
 
+      // Update health metrics
+      SourceMetricsReporter.updateHealth(pipelineId, "api", isHealthy = true)
+
       val (switch, doneF) =
         buildDataStream()
           .viaMat(KillSwitches.single)(Keep.right)
@@ -346,9 +372,12 @@ class ApiSource(
         case Success(_)  =>
           log.info("ApiSource {} completed", sourceId)
           isRunning = false
+          SourceMetricsReporter.updateHealth(pipelineId, "api", isHealthy = false)
         case Failure(ex) =>
           log.error("ApiSource {} failed: {}", sourceId, ex.getMessage, ex)
           isRunning = false
+          SourceMetricsReporter.recordError(pipelineId, "api", "stream_failure")
+          SourceMetricsReporter.updateHealth(pipelineId, "api", isHealthy = false)
       }
 
       Future.successful(Done)
@@ -366,8 +395,9 @@ class ApiSource(
       return Future.successful(Done)
     }
 
-    val batchId = UUID.randomUUID().toString
-    val offset  = currentPage
+    val batchId     = UUID.randomUUID().toString
+    val offset      = currentPage
+    val sendTimeMs  = System.currentTimeMillis()
 
     log.debug(
       "Sending batch: batchId={} records={} page={} url={}",
@@ -387,6 +417,11 @@ class ApiSource(
 
     pipelineShardRegion ! ShardingEnvelope(pipelineId, command)
 
+    // Record batch metrics
+    val latencyMs = System.currentTimeMillis() - sendTimeMs
+    SourceMetricsReporter.recordBatchSent(pipelineId, "api", records.size, latencyMs)
+    SourceMetricsReporter.updateOffset(pipelineId, "api", offset)
+
     Future.successful(Done)
   }
 
@@ -404,6 +439,9 @@ class ApiSource(
     killSwitch.foreach(_.shutdown())
     killSwitch = None
     isRunning = false
+
+    // Update health metrics
+    SourceMetricsReporter.updateHealth(pipelineId, "api", isHealthy = false)
 
     Future.successful(Done)
   }
