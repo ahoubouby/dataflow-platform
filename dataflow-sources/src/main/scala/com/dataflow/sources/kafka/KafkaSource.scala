@@ -1,4 +1,6 @@
-package com.dataflow.sources
+package com.dataflow.sources.kafka
+
+import com.dataflow.sources.{Source, SourceMetricsReporter}
 
 import java.time.Instant
 import java.util.UUID

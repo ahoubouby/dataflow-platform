@@ -1,4 +1,4 @@
-package com.dataflow.sources
+package com.dataflow.sources.api
 
 import java.time.Instant
 import java.util.UUID
@@ -9,6 +9,7 @@ import scala.util.{Failure, Success, Try}
 
 import com.dataflow.domain.commands.{Command, IngestBatch}
 import com.dataflow.domain.models.{DataRecord, SourceConfig}
+import com.dataflow.sources.{Source, SourceMetricsReporter}
 import org.apache.pekko.{Done, NotUsed}
 import org.apache.pekko.actor.typed.{ActorRef, ActorSystem}
 import org.apache.pekko.cluster.sharding.typed.ShardingEnvelope
@@ -55,7 +56,7 @@ import spray.json._
  *    )
  *  }}}
  */
-class ApiSource(
+class RestApiSource(
   val pipelineId: String,
   val config: SourceConfig,
 )(implicit system: ActorSystem[_]) extends Source {
@@ -102,7 +103,7 @@ class ApiSource(
   @volatile private var killSwitch:    Option[org.apache.pekko.stream.UniqueKillSwitch] = None
 
   log.info(
-    "Initialized ApiSource id={} url={} method={} pagination={} batchSize={}",
+    "Initialized RestApiSource id={} url={} method={} pagination={} batchSize={}",
     sourceId,
     apiUrl,
     method.value,
@@ -349,10 +350,10 @@ class ApiSource(
     pipelineShardRegion: ActorRef[ShardingEnvelope[Command]],
   ): Future[Done] = {
     if (isRunning) {
-      log.warn("ApiSource {} already running", sourceId)
+      log.warn("RestApiSource {} already running", sourceId)
       Future.successful(Done)
     } else {
-      log.info("Starting ApiSource {} for {}", sourceId, apiUrl)
+      log.info("Starting RestApiSource {} for {}", sourceId, apiUrl)
       isRunning = true
 
       // Update health metrics
@@ -370,11 +371,11 @@ class ApiSource(
 
       doneF.onComplete {
         case Success(_)  =>
-          log.info("ApiSource {} completed", sourceId)
+          log.info("RestApiSource {} completed", sourceId)
           isRunning = false
           SourceMetricsReporter.updateHealth(pipelineId, "api", isHealthy = false)
         case Failure(ex) =>
-          log.error("ApiSource {} failed: {}", sourceId, ex.getMessage, ex)
+          log.error("RestApiSource {} failed: {}", sourceId, ex.getMessage, ex)
           isRunning = false
           SourceMetricsReporter.recordError(pipelineId, "api", "stream_failure")
           SourceMetricsReporter.updateHealth(pipelineId, "api", isHealthy = false)
@@ -430,11 +431,11 @@ class ApiSource(
    */
   override def stop(): Future[Done] = {
     if (!isRunning) {
-      log.warn("ApiSource {} not running", sourceId)
+      log.warn("RestApiSource {} not running", sourceId)
       return Future.successful(Done)
     }
 
-    log.info("Stopping ApiSource {}", sourceId)
+    log.info("Stopping RestApiSource {}", sourceId)
 
     killSwitch.foreach(_.shutdown())
     killSwitch = None
@@ -449,7 +450,7 @@ class ApiSource(
   override def currentOffset(): Long = currentPage
 
   override def resumeFrom(offset: Long): Unit = {
-    log.info("Resuming ApiSource from page: {}", offset)
+    log.info("Resuming RestApiSource from page: {}", offset)
     currentPage = offset
   }
 
@@ -463,8 +464,8 @@ class ApiSource(
 /**
  * Companion object with factory method.
  */
-object ApiSource {
+object RestApiSource {
 
-  def apply(pipelineId: String, config: SourceConfig)(implicit system: ActorSystem[_]): ApiSource =
-    new ApiSource(pipelineId, config)
+  def apply(pipelineId: String, config: SourceConfig)(implicit system: ActorSystem[_]): RestApiSource =
+    new RestApiSource(pipelineId, config)
 }

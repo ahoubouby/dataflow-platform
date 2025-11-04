@@ -1,7 +1,8 @@
-package com.dataflow.sources
+package com.dataflow.sources.test
 
 import com.dataflow.domain.commands.{Command, IngestBatch}
 import com.dataflow.domain.models.DataRecord
+import com.dataflow.sources.SourceMetricsReporter
 import org.apache.pekko.actor.typed.scaladsl.{ActorContext, Behaviors, TimerScheduler}
 import org.apache.pekko.actor.typed.{ActorRef, Behavior}
 import org.apache.pekko.cluster.sharding.typed.ShardingEnvelope

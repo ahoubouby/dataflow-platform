@@ -5,6 +5,10 @@ import scala.concurrent.Future
 import com.dataflow.domain.commands.Command
 import com.dataflow.domain.models.{DataRecord, SourceConfig, SourceType}
 import com.dataflow.sources.Source.SourceState.Starting
+import com.dataflow.sources.api.RestApiSource
+import com.dataflow.sources.database.JdbcSource
+import com.dataflow.sources.file.{CSVFileSource, JSONFileSource, TextFileSource}
+import com.dataflow.sources.kafka.KafkaSource
 import org.apache.pekko.Done
 import org.apache.pekko.actor.typed.ActorRef
 import org.apache.pekko.cluster.sharding.typed.ShardingEnvelope
@@ -149,13 +153,41 @@ object Source {
   )(implicit system: org.apache.pekko.actor.typed.ActorSystem[_],
   ): Source = {
     config.sourceType match {
-      case SourceType.File     => FileSource(pipelineId, config)
+      case SourceType.File =>
+        // Determine file format from config options
+        val format = config.options.getOrElse("format", "text").toLowerCase
+        format match {
+          case "csv"  => CSVFileSource(pipelineId, config)
+          case "json" => JSONFileSource(pipelineId, config)
+          case "text" => TextFileSource(pipelineId, config)
+          case other  => throw new IllegalArgumentException(s"Unsupported file format: $other")
+        }
+
       case SourceType.Kafka    => KafkaSource(pipelineId, config)
-      case SourceType.Api      => ApiSource(pipelineId, config)
-      case SourceType.Database => DatabaseSource(pipelineId, config)
+      case SourceType.Api      => RestApiSource(pipelineId, config)
+      case SourceType.Database => JdbcSource(pipelineId, config)
       case other               => throw new IllegalArgumentException(s"Unsupported source type: $other")
     }
   }
+}
+
+/**
+ * Backward-compatible helper objects for source instantiation.
+ * These delegate to the Source factory method but provide format-specific names.
+ */
+object FileSource {
+  def apply(pipelineId: String, config: SourceConfig)(implicit system: org.apache.pekko.actor.typed.ActorSystem[_]): Source =
+    Source(pipelineId, config)
+}
+
+object ApiSource {
+  def apply(pipelineId: String, config: SourceConfig)(implicit system: org.apache.pekko.actor.typed.ActorSystem[_]): Source =
+    Source(pipelineId, config)
+}
+
+object DatabaseSource {
+  def apply(pipelineId: String, config: SourceConfig)(implicit system: org.apache.pekko.actor.typed.ActorSystem[_]): Source =
+    Source(pipelineId, config)
 }
 
 /**

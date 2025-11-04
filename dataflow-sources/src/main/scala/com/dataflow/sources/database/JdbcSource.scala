@@ -1,4 +1,4 @@
-package com.dataflow.sources
+package com.dataflow.sources.database
 
 import java.sql.{Connection, DriverManager, ResultSet, Timestamp}
 import java.time.Instant
@@ -10,6 +10,7 @@ import scala.util.{Failure, Success, Try, Using}
 
 import com.dataflow.domain.commands.{Command, IngestBatch}
 import com.dataflow.domain.models.{DataRecord, SourceConfig}
+import com.dataflow.sources.{Source, SourceMetricsReporter}
 import org.apache.pekko.{Done, NotUsed}
 import org.apache.pekko.actor.typed.{ActorRef, ActorSystem}
 import org.apache.pekko.cluster.sharding.typed.ShardingEnvelope
@@ -47,7 +48,7 @@ import org.slf4j.LoggerFactory
  *    )
  *  }}}
  */
-class DatabaseSource(
+class JdbcSource(
   val pipelineId: String,
   val config: SourceConfig,
 )(implicit system: ActorSystem[_]) extends Source {
@@ -99,7 +100,7 @@ class DatabaseSource(
   }
 
   log.info(
-    "Initialized DatabaseSource id={} url={} query={} batchSize={}",
+    "Initialized JdbcSource id={} url={} query={} batchSize={}",
     sourceId,
     jdbcUrl,
     query,
@@ -309,10 +310,10 @@ class DatabaseSource(
     pipelineShardRegion: ActorRef[ShardingEnvelope[Command]],
   ): Future[Done] = {
     if (isRunning) {
-      log.warn("DatabaseSource {} already running", sourceId)
+      log.warn("JdbcSource {} already running", sourceId)
       Future.successful(Done)
     } else {
-      log.info("Starting DatabaseSource {} for {}", sourceId, jdbcUrl)
+      log.info("Starting JdbcSource {} for {}", sourceId, jdbcUrl)
       isRunning = true
 
       // Update health metrics
@@ -330,11 +331,11 @@ class DatabaseSource(
 
       doneF.onComplete {
         case Success(_)  =>
-          log.info("DatabaseSource {} completed", sourceId)
+          log.info("JdbcSource {} completed", sourceId)
           isRunning = false
           SourceMetricsReporter.updateHealth(pipelineId, "database", isHealthy = false)
         case Failure(ex) =>
-          log.error("DatabaseSource {} failed: {}", sourceId, ex.getMessage, ex)
+          log.error("JdbcSource {} failed: {}", sourceId, ex.getMessage, ex)
           isRunning = false
           SourceMetricsReporter.recordError(pipelineId, "database", "stream_failure")
           SourceMetricsReporter.updateHealth(pipelineId, "database", isHealthy = false)
@@ -390,11 +391,11 @@ class DatabaseSource(
    */
   override def stop(): Future[Done] = {
     if (!isRunning) {
-      log.warn("DatabaseSource {} not running", sourceId)
+      log.warn("JdbcSource {} not running", sourceId)
       return Future.successful(Done)
     }
 
-    log.info("Stopping DatabaseSource {}", sourceId)
+    log.info("Stopping JdbcSource {}", sourceId)
 
     killSwitch.foreach(_.shutdown())
     killSwitch = None
@@ -409,7 +410,7 @@ class DatabaseSource(
   override def currentOffset(): Long = recordCount
 
   override def resumeFrom(offset: Long): Unit = {
-    log.info("Resuming DatabaseSource from offset: {}", offset)
+    log.info("Resuming JdbcSource from offset: {}", offset)
     recordCount = offset
     // Note: For true resumption, we'd need to persist lastIncrementalValue
   }
@@ -432,8 +433,8 @@ class DatabaseSource(
 /**
  * Companion object with factory method.
  */
-object DatabaseSource {
+object JdbcSource {
 
-  def apply(pipelineId: String, config: SourceConfig)(implicit system: ActorSystem[_]): DatabaseSource =
-    new DatabaseSource(pipelineId, config)
+  def apply(pipelineId: String, config: SourceConfig)(implicit system: ActorSystem[_]): JdbcSource =
+    new JdbcSource(pipelineId, config)
 }
