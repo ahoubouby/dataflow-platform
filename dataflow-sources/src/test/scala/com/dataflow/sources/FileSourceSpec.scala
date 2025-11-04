@@ -190,7 +190,6 @@ class FileSourceSpec extends AnyWordSpec with Matchers with SourceTestFixtures w
 
         // Check first record
         val firstRecord = records.head
-        println("-----firstRecord-----", firstRecord)
         firstRecord.data("line") shouldBe "2024-01-01 10:00:00 INFO Application started"
         firstRecord.metadata("line_number") shouldBe "1"
 

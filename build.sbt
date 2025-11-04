@@ -201,6 +201,7 @@ lazy val dataflowSources = (project in file("dataflow-sources"))
       "com.dimafeng" %% "testcontainers-scala-kafka" % testContainersVersion % Test,
       "com.dimafeng" %% "testcontainers-scala-postgresql" % testContainersVersion % Test,
     ),
+    coverageExcludedFiles := ".*TestSource.scala",
   )
 
 // ============================================
