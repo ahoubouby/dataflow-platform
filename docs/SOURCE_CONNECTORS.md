@@ -8,6 +8,8 @@ This guide covers the data source connectors available in the DataFlow Platform,
 - [Source Abstraction](#source-abstraction)
 - [File Source](#file-source)
 - [Kafka Source](#kafka-source)
+- [API Source](#api-source)
+- [Database Source](#database-source)
 - [Test Source](#test-source)
 - [Configuration Reference](#configuration-reference)
 - [Best Practices](#best-practices)
@@ -518,6 +520,508 @@ Key metrics to monitor:
 - **Throughput**: Messages per second
 - **Error Rate**: Failed message parsing/processing
 - **Rebalances**: Consumer group rebalances
+
+## API Source
+
+The API Source connector ingests data from REST APIs using HTTP polling. It supports various authentication methods, pagination strategies, and can handle JSON responses.
+
+### Key Features
+
+- **HTTP Methods**: GET, POST requests
+- **Authentication**: Basic, Bearer token, API key, or none
+- **Pagination**: Offset-based, page-based, cursor-based, or none
+- **Polling**: Configurable interval-based polling
+- **JSON Parsing**: Automatic parsing with configurable response paths
+- **Rate Limiting**: Built-in backpressure and polling interval control
+- **Retry Logic**: Automatic recovery from transient failures
+
+### Configuration
+
+#### Basic API Configuration
+
+```scala
+SourceConfig(
+  sourceType = SourceType.Api,
+  connectionString = "https://api.example.com/users",
+  options = Map(
+    "method" -> "GET",
+    "auth-type" -> "none",
+    "response-path" -> "data"  // JSON path to data array
+  ),
+  batchSize = 100,
+  pollIntervalMs = 5000  // Poll every 5 seconds
+)
+```
+
+#### Authentication Types
+
+**No Authentication**:
+```scala
+Map(
+  "auth-type" -> "none"
+)
+```
+
+**Basic Authentication**:
+```scala
+Map(
+  "auth-type" -> "basic",
+  "auth-username" -> "myuser",
+  "auth-password" -> "mypassword"
+)
+```
+
+**Bearer Token**:
+```scala
+Map(
+  "auth-type" -> "bearer",
+  "auth-token" -> "your-jwt-token-here"
+)
+```
+
+**API Key**:
+```scala
+Map(
+  "auth-type" -> "api-key",
+  "auth-token" -> "your-api-key",
+  "auth-key-name" -> "X-API-Key"  // Optional, defaults to X-API-Key
+)
+```
+
+#### Pagination Strategies
+
+**No Pagination** (single request):
+```scala
+Map(
+  "pagination-type" -> "none"
+)
+```
+
+**Offset-Based Pagination**:
+```scala
+Map(
+  "pagination-type" -> "offset",
+  "pagination-param" -> "offset",        // Query param name
+  "pagination-size-param" -> "limit",    // Size param name
+  "pagination-size" -> "100"             // Records per request
+)
+// Generates: /api/users?offset=0&limit=100, /api/users?offset=100&limit=100, ...
+```
+
+**Page-Based Pagination**:
+```scala
+Map(
+  "pagination-type" -> "page",
+  "pagination-param" -> "page",
+  "pagination-size-param" -> "per_page",
+  "pagination-size" -> "50"
+)
+// Generates: /api/users?page=1&per_page=50, /api/users?page=2&per_page=50, ...
+```
+
+**Cursor-Based Pagination**:
+```scala
+Map(
+  "pagination-type" -> "cursor",
+  "pagination-param" -> "cursor",
+  "pagination-size-param" -> "limit",
+  "pagination-size" -> "100"
+)
+// Looks for "next_cursor", "nextCursor", or "cursor" in response
+// Generates: /api/users?cursor=abc123&limit=100
+```
+
+#### Response Path Configuration
+
+Use dot notation to navigate nested JSON:
+
+```scala
+Map(
+  "response-path" -> "data"           // { "data": [...] }
+)
+
+Map(
+  "response-path" -> "result.users"   // { "result": { "users": [...] } }
+)
+```
+
+#### Custom Headers
+
+```scala
+Map(
+  "headers" -> """{"Content-Type":"application/json","X-Custom-Header":"value"}"""
+)
+```
+
+### Complete Example: GitHub API
+
+```scala
+SourceConfig(
+  sourceType = SourceType.Api,
+  connectionString = "https://api.github.com/repos/apache/pekko/issues",
+  options = Map(
+    "method" -> "GET",
+    "auth-type" -> "bearer",
+    "auth-token" -> System.getenv("GITHUB_TOKEN"),
+    "pagination-type" -> "page",
+    "pagination-param" -> "page",
+    "pagination-size-param" -> "per_page",
+    "pagination-size" -> "100",
+    "response-path" -> ".",  // Response is array at root
+    "headers" -> """{"Accept":"application/vnd.github.v3+json"}"""
+  ),
+  batchSize = 100,
+  pollIntervalMs = 60000  // Poll every minute
+)
+```
+
+### Monitoring
+
+Key metrics to monitor:
+
+- **Response Time**: API response latency (histogram)
+- **Status Codes**: HTTP status code distribution
+- **Request Rate**: API requests per second
+- **Pagination Progress**: Current page/cursor
+- **Parse Errors**: Failed JSON parsing count
+- **Connection Errors**: Network failures
+
+### Best Practices
+
+1. **Rate Limiting**: Set appropriate `pollIntervalMs` to respect API rate limits
+2. **Authentication**: Store tokens in environment variables, not code
+3. **Pagination**: Use cursor-based when available for better consistency
+4. **Response Path**: Verify the JSON structure matches your `response-path`
+5. **Error Handling**: Monitor status codes and parse errors
+6. **Timeouts**: Consider API response times when setting poll intervals
+
+### Troubleshooting
+
+#### Problem: "API request failed with status: 429"
+
+**Cause**: Rate limit exceeded
+
+**Solution**:
+- Increase `pollIntervalMs`
+- Check API rate limit documentation
+- Implement exponential backoff (future enhancement)
+
+#### Problem: "Response path 'data' did not return array"
+
+**Cause**: JSON structure doesn't match configured path
+
+**Solution**:
+- Verify API response structure
+- Use browser or curl to inspect response
+- Adjust `response-path` to match actual structure
+- Ensure path points to an array
+
+#### Problem: "Failed to parse API response"
+
+**Cause**: Invalid JSON or unexpected format
+
+**Solution**:
+- Check API response format
+- Verify Content-Type header
+- Enable debug logging to see raw response
+- Check for API version changes
+
+## Database Source
+
+The Database Source connector ingests data from relational databases using JDBC. It supports periodic polling, incremental queries, and various database systems.
+
+### Key Features
+
+- **JDBC Support**: Works with PostgreSQL, MySQL, Oracle, SQL Server, etc.
+- **Incremental Sync**: Timestamp-based or ID-based incremental queries
+- **Periodic Polling**: Configurable poll intervals
+- **Batch Fetching**: Efficient result set streaming with JDBC fetch size
+- **Connection Management**: Automatic connection lifecycle
+- **SQL Queries**: Full SQL query support with parameter binding
+- **Multiple Data Types**: Automatic type conversion to strings
+
+### Configuration
+
+#### Basic Database Configuration
+
+```scala
+SourceConfig(
+  sourceType = SourceType.Database,
+  connectionString = "jdbc:postgresql://localhost:5432/mydb",
+  options = Map(
+    "username" -> "dbuser",
+    "password" -> "dbpass",
+    "driver" -> "org.postgresql.Driver",
+    "query" -> "SELECT * FROM users",
+    "fetch-size" -> "1000"
+  ),
+  batchSize = 1000,
+  pollIntervalMs = 60000  // Poll every minute
+)
+```
+
+#### Supported Databases
+
+**PostgreSQL**:
+```scala
+Map(
+  "driver" -> "org.postgresql.Driver",
+  // connectionString: jdbc:postgresql://host:5432/database
+)
+```
+
+**MySQL**:
+```scala
+Map(
+  "driver" -> "com.mysql.cj.jdbc.Driver",
+  // connectionString: jdbc:mysql://host:3306/database
+)
+```
+
+**Oracle**:
+```scala
+Map(
+  "driver" -> "oracle.jdbc.OracleDriver",
+  // connectionString: jdbc:oracle:thin:@host:1521:sid
+)
+```
+
+**SQL Server**:
+```scala
+Map(
+  "driver" -> "com.microsoft.sqlserver.jdbc.SQLServerDriver",
+  // connectionString: jdbc:sqlserver://host:1433;databaseName=mydb
+)
+```
+
+#### Incremental Queries
+
+**Timestamp-Based Incremental Sync**:
+```scala
+Map(
+  "query" -> "SELECT * FROM events WHERE created_at > ?",
+  "incremental-column" -> "created_at",
+  "incremental-type" -> "timestamp",
+  "start-time" -> "2024-01-01 00:00:00"  // Optional start time
+)
+```
+
+The `?` placeholder is automatically filled with the last seen timestamp.
+
+**ID-Based Incremental Sync**:
+```scala
+Map(
+  "query" -> "SELECT * FROM users WHERE id > ?",
+  "incremental-column" -> "id",
+  "incremental-type" -> "id",
+  "start-id" -> "0"  // Optional start ID
+)
+```
+
+The `?` placeholder is automatically filled with the last seen ID.
+
+**No Incremental Sync** (full table scan each poll):
+```scala
+Map(
+  "query" -> "SELECT * FROM users WHERE active = true"
+  // No incremental-column configured
+)
+```
+
+#### Performance Tuning
+
+**Fetch Size**: Controls how many rows are fetched from the database at once
+```scala
+Map(
+  "fetch-size" -> "5000"  // Larger = fewer round trips, more memory
+)
+```
+
+**Poll Interval**: How often to check for new data
+```scala
+// pollIntervalMs in SourceConfig
+pollIntervalMs = 300000  // 5 minutes
+```
+
+**Batch Size**: How many records to batch before sending to pipeline
+```scala
+// batchSize in SourceConfig
+batchSize = 1000
+```
+
+### Complete Examples
+
+#### Incremental CDC-style Pattern
+
+```scala
+SourceConfig(
+  sourceType = SourceType.Database,
+  connectionString = "jdbc:postgresql://localhost:5432/orders_db",
+  options = Map(
+    "username" -> System.getenv("DB_USER"),
+    "password" -> System.getenv("DB_PASS"),
+    "driver" -> "org.postgresql.Driver",
+    "query" -> """
+      SELECT id, customer_id, product_id, amount, status, created_at
+      FROM orders
+      WHERE created_at > ?
+      ORDER BY created_at ASC
+    """,
+    "incremental-column" -> "created_at",
+    "incremental-type" -> "timestamp",
+    "start-time" -> "2024-01-01 00:00:00",
+    "fetch-size" -> "2000"
+  ),
+  batchSize = 500,
+  pollIntervalMs = 30000  // Check every 30 seconds
+)
+```
+
+#### Complex JOIN Query
+
+```scala
+SourceConfig(
+  sourceType = SourceType.Database,
+  connectionString = "jdbc:mysql://localhost:3306/analytics",
+  options = Map(
+    "username" -> "analyst",
+    "password" -> "password",
+    "driver" -> "com.mysql.cj.jdbc.Driver",
+    "query" -> """
+      SELECT
+        u.id, u.email, u.name,
+        o.order_id, o.amount, o.status,
+        o.created_at as order_date
+      FROM users u
+      JOIN orders o ON u.id = o.user_id
+      WHERE o.created_at > ?
+      AND o.status = 'completed'
+    """,
+    "incremental-column" -> "created_at",
+    "incremental-type" -> "timestamp",
+    "fetch-size" -> "1000"
+  ),
+  batchSize = 1000,
+  pollIntervalMs = 60000
+)
+```
+
+#### Read-Only Replica Configuration
+
+```scala
+SourceConfig(
+  sourceType = SourceType.Database,
+  connectionString = "jdbc:postgresql://replica.example.com:5432/production",
+  options = Map(
+    "username" -> "readonly_user",
+    "password" -> System.getenv("REPLICA_PASSWORD"),
+    "driver" -> "org.postgresql.Driver",
+    "query" -> """
+      SELECT * FROM large_table
+      WHERE id > ?
+      AND processed = false
+    """,
+    "incremental-column" -> "id",
+    "incremental-type" -> "id",
+    "start-id" -> "0",
+    "fetch-size" -> "10000"  // Large fetch for better performance
+  ),
+  batchSize = 5000,
+  pollIntervalMs = 120000  // Poll every 2 minutes
+)
+```
+
+### Data Type Handling
+
+All database column values are converted to strings in `DataRecord`:
+
+```scala
+// Database row:
+// id=123, name="Alice", age=30, balance=1000.50, active=true, created_at=2024-01-01 10:00:00
+
+// Becomes DataRecord:
+DataRecord(
+  id = "123",
+  data = Map(
+    "id" -> "123",
+    "name" -> "Alice",
+    "age" -> "30",
+    "balance" -> "1000.5",
+    "active" -> "true",
+    "created_at" -> "2024-01-01 10:00:00.0"
+  ),
+  metadata = Map(
+    "source" -> "database",
+    "jdbc_url" -> "jdbc:postgresql://...",
+    "format" -> "sql"
+  )
+)
+```
+
+NULL values are converted to empty strings.
+
+### Monitoring
+
+Key metrics to monitor:
+
+- **Query Execution Time**: Time taken to execute SQL query (histogram)
+- **Rows Fetched**: Number of rows read from database
+- **Incremental Watermark**: Current timestamp/ID value for incremental sync
+- **Connection Errors**: Failed database connections
+- **Query Errors**: SQL execution failures
+
+### Best Practices
+
+1. **Read-Only Access**: Use read-only database users for safety
+2. **Indexes**: Ensure incremental columns are indexed for performance
+3. **Replicas**: Read from replicas, not production master
+4. **Connection Pooling**: Consider HikariCP for connection management (future)
+5. **Query Optimization**: Use EXPLAIN to optimize queries
+6. **Monitoring**: Track watermark progress to detect stuck pipelines
+7. **Security**: Store credentials in environment variables or secrets management
+
+### Troubleshooting
+
+#### Problem: "Failed to load JDBC driver"
+
+**Cause**: Driver class not on classpath
+
+**Solution**:
+- Add appropriate JDBC driver dependency to build.sbt
+- Verify driver class name is correct
+- Check driver compatibility with Java version
+
+#### Problem: "Slow query performance"
+
+**Cause**: Missing indexes or inefficient query
+
+**Solution**:
+- Add index on incremental column
+- Use EXPLAIN to analyze query plan
+- Increase `fetch-size` for better throughput
+- Consider partitioning large tables
+- Add WHERE clauses to reduce result set
+
+#### Problem: "Connection timeout"
+
+**Cause**: Database unreachable or slow
+
+**Solution**:
+- Verify network connectivity
+- Check database firewall rules
+- Increase connection timeout in JDBC URL
+- Verify credentials are correct
+
+#### Problem: "Incremental sync not progressing"
+
+**Cause**: Watermark not updating or no new data
+
+**Solution**:
+- Check incremental column exists and has values
+- Verify query has `?` placeholder
+- Check metrics for watermark value
+- Ensure ORDER BY on incremental column
+- Verify data is being inserted into source table
 
 ## Test Source
 
