@@ -96,6 +96,11 @@ class FileSource(
     config.batchSize,
   )
 
+  // Initialize metrics
+  if (Files.exists(filePath)) {
+    SourceMetricsReporter.updateFileSize(pipelineId, Files.size(filePath))
+  }
+
   /**
    * Create streaming source from file.
    */
@@ -180,7 +185,7 @@ class FileSource(
           values.zipWithIndex.map { case (v, i) => s"field${i + 1}" -> v }.toMap
       }
 
-      DataRecord(
+      val record = DataRecord(
         id = data.getOrElse("id", UUID.randomUUID().toString),
         data = data,
         metadata = Map(
@@ -192,7 +197,20 @@ class FileSource(
           "timestamp"   -> Instant.now().toString,
         ),
       )
-    }.toOption
+
+      // Record metrics
+      SourceMetricsReporter.recordRecordsRead(pipelineId, "file", 1)
+      SourceMetricsReporter.recordBytesRead(pipelineId, "file", line.getBytes(encoding).length.toLong)
+      SourceMetricsReporter.recordFileLinesRead(pipelineId, filePath.toString, 1)
+
+      record
+    } match {
+      case Success(record) => Some(record)
+      case Failure(ex) =>
+        SourceMetricsReporter.recordParseError(pipelineId, "file", "csv")
+        log.warn("Failed to parse CSV line {}: {}", lineNumber, ex.getMessage)
+        None
+    }
 
   /**
    * JSON stream - reads newline-delimited JSON.
@@ -237,7 +255,7 @@ class FileSource(
       val id = json.fields.get("id").map(_.toString.stripPrefix("\"").stripSuffix("\""))
         .getOrElse(UUID.randomUUID().toString)
 
-      DataRecord(
+      val record = DataRecord(
         id = id,
         data = data - "id", // Remove id from data fields
         metadata = Map(
@@ -249,9 +267,17 @@ class FileSource(
           "timestamp"   -> Instant.now().toString,
         ),
       )
+
+      // Record metrics
+      SourceMetricsReporter.recordRecordsRead(pipelineId, "file", 1)
+      SourceMetricsReporter.recordBytesRead(pipelineId, "file", line.getBytes(encoding).length.toLong)
+      SourceMetricsReporter.recordFileLinesRead(pipelineId, filePath.toString, 1)
+
+      record
     } match {
       case Success(record) => Some(record)
       case Failure(ex)     =>
+        SourceMetricsReporter.recordParseError(pipelineId, "file", "json")
         log.warn(s"Failed to parse JSON line $lineNumber: ${ex.getMessage}")
         None
     }
@@ -277,6 +303,12 @@ class FileSource(
     .map {
       case (line, idx) =>
         currentLineNumber = idx
+
+        // Record metrics
+        SourceMetricsReporter.recordRecordsRead(pipelineId, "file", 1)
+        SourceMetricsReporter.recordBytesRead(pipelineId, "file", line.getBytes(encoding).length.toLong)
+        SourceMetricsReporter.recordFileLinesRead(pipelineId, filePath.toString, 1)
+
         DataRecord(
           id = UUID.randomUUID().toString,
           data = Map("line" -> line),
@@ -305,6 +337,9 @@ class FileSource(
       log.info("Starting FileSource {} for {}", sourceId, filePath)
       isRunning = true
 
+      // Update health metrics
+      SourceMetricsReporter.updateHealth(pipelineId, "file", isHealthy = true)
+
       val (switch, doneF) =
         buildDataStream()
           .viaMat(KillSwitches.single)(Keep.right)
@@ -319,9 +354,12 @@ class FileSource(
         case Success(_)  =>
           log.info("FileSource {} completed", sourceId)
           isRunning = false
+          SourceMetricsReporter.updateHealth(pipelineId, "file", isHealthy = false)
         case Failure(ex) =>
           log.error("FileSource {} failed: {}", sourceId, ex.getMessage, ex)
           isRunning = false
+          SourceMetricsReporter.recordError(pipelineId, "file", "stream_failure")
+          SourceMetricsReporter.updateHealth(pipelineId, "file", isHealthy = false)
       }
 
       Future.successful(Done)
@@ -339,8 +377,9 @@ class FileSource(
       return Future.successful(Done)
     }
 
-    val batchId = UUID.randomUUID().toString
-    val offset  = currentLineNumber
+    val batchId     = UUID.randomUUID().toString
+    val offset      = currentLineNumber
+    val sendTimeMs  = System.currentTimeMillis()
 
     log.debug(s"Sending batch: batchId=$batchId, records=${records.size}, offset=$offset")
 
@@ -353,6 +392,20 @@ class FileSource(
     )
 
     pipelineShardRegion ! ShardingEnvelope(pipelineId, command)
+
+    // Record batch metrics
+    val latencyMs = System.currentTimeMillis() - sendTimeMs
+    SourceMetricsReporter.recordBatchSent(pipelineId, "file", records.size, latencyMs)
+    SourceMetricsReporter.updateOffset(pipelineId, "file", offset)
+
+    // Update read progress (current line / total lines)
+    if (Files.exists(filePath)) {
+      val totalLines = Files.lines(filePath).count()
+      if (totalLines > 0) {
+        val progress = Math.min(1.0, currentLineNumber.toDouble / totalLines.toDouble)
+        SourceMetricsReporter.updateFileReadProgress(pipelineId, progress)
+      }
+    }
 
     Future.successful(Done)
   }
@@ -371,6 +424,9 @@ class FileSource(
     killSwitch.foreach(_.shutdown())
     killSwitch = None
     isRunning = false
+
+    // Update health metrics
+    SourceMetricsReporter.updateHealth(pipelineId, "file", isHealthy = false)
 
     Future.successful(Done)
   }
