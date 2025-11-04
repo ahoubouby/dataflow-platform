@@ -96,9 +96,9 @@ class ApiSource(
     config.options.getOrElse("response-path", "data")
 
   // State
-  @volatile private var currentPage: Long                                              = 0
-  @volatile private var currentCursor: Option[String]                                  = None
-  @volatile private var isRunning:     Boolean                                         = false
+  @volatile private var currentPage:   Long                                             = 0
+  @volatile private var currentCursor: Option[String]                                   = None
+  @volatile private var isRunning:     Boolean                                          = false
   @volatile private var killSwitch:    Option[org.apache.pekko.stream.UniqueKillSwitch] = None
 
   log.info(
@@ -124,8 +124,9 @@ class ApiSource(
     // Create a tick source that polls the API at regular intervals
     PekkoSource
       .tick(0.seconds, config.pollIntervalMs.milliseconds, ())
-      .mapAsync(1) { _ =>
-        fetchFromApi()
+      .mapAsync(1) {
+        _ =>
+          fetchFromApi()
       }
       .mapConcat(identity) // Flatten List[DataRecord] to individual records
       .mapMaterializedValue(_ => NotUsed)
@@ -139,18 +140,20 @@ class ApiSource(
 
     Http()
       .singleRequest(request)
-      .flatMap { response =>
-        response.status match {
-          case StatusCodes.OK =>
-            Unmarshal(response.entity).to[String].map { body =>
-              parseResponse(body)
-            }
+      .flatMap {
+        response =>
+          response.status match {
+            case StatusCodes.OK =>
+              Unmarshal(response.entity).to[String].map {
+                body =>
+                  parseResponse(body)
+              }
 
-          case status =>
-            response.discardEntityBytes()
-            log.warn("API request failed with status: {}", status)
-            Future.successful(List.empty)
-        }
+            case status =>
+              response.discardEntityBytes()
+              log.warn("API request failed with status: {}", status)
+              Future.successful(List.empty)
+          }
       }
       .recover {
         case ex =>
@@ -196,7 +199,7 @@ class ApiSource(
         Some(Authorization(OAuth2BearerToken(token)))
 
       case "api-key" =>
-        val keyName = config.options.getOrElse("auth-key-name", "X-API-Key")
+        val keyName  = config.options.getOrElse("auth-key-name", "X-API-Key")
         val keyValue = config.options.getOrElse("auth-token", "")
         Some(headers.RawHeader(keyName, keyValue))
 
@@ -205,13 +208,14 @@ class ApiSource(
     }
 
     // Parse additional headers from config
-    val additionalHeaders = config.options.get("headers").flatMap { headersJson =>
-      Try {
-        headersJson.parseJson.asJsObject.fields.map {
-          case (name, JsString(value)) => headers.RawHeader(name, value)
-          case (name, other)           => headers.RawHeader(name, other.toString)
-        }.toList
-      }.toOption
+    val additionalHeaders = config.options.get("headers").flatMap {
+      headersJson =>
+        Try {
+          headersJson.parseJson.asJsObject.fields.map {
+            case (name, JsString(value)) => headers.RawHeader(name, value)
+            case (name, other)           => headers.RawHeader(name, other.toString)
+          }.toList
+        }.toOption
     }.getOrElse(List.empty)
 
     val allHeaders = authHeader.toList ++ additionalHeaders
@@ -239,11 +243,12 @@ class ApiSource(
 
       dataArray match {
         case JsArray(elements) =>
-          val records = elements.flatMap { element =>
-            element match {
-              case obj: JsObject => Some(parseJsonObject(obj))
-              case _             => None
-            }
+          val records = elements.flatMap {
+            element =>
+              element match {
+                case obj: JsObject => Some(parseJsonObject(obj))
+                case _             => None
+              }
           }.toList
 
           // Update pagination state
@@ -281,12 +286,12 @@ class ApiSource(
       id = id,
       data = data - "id",
       metadata = Map(
-        "source"     -> "api",
-        "source_id"  -> sourceId,
-        "api_url"    -> apiUrl,
-        "page"       -> currentPage.toString,
-        "format"     -> "json",
-        "timestamp"  -> Instant.now().toString,
+        "source"    -> "api",
+        "source_id" -> sourceId,
+        "api_url"   -> apiUrl,
+        "page"      -> currentPage.toString,
+        "format"    -> "json",
+        "timestamp" -> Instant.now().toString,
       ),
     )
   }

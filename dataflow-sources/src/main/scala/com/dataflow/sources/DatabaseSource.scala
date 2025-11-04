@@ -4,7 +4,7 @@ import java.sql.{Connection, DriverManager, ResultSet, Timestamp}
 import java.time.Instant
 import java.util.UUID
 
-import scala.concurrent.{ExecutionContext, Future, blocking}
+import scala.concurrent.{blocking, ExecutionContext, Future}
 import scala.concurrent.duration._
 import scala.util.{Failure, Success, Try, Using}
 
@@ -84,9 +84,9 @@ class DatabaseSource(
     config.options.getOrElse("fetch-size", "1000").toInt
 
   // State
-  @volatile private var lastIncrementalValue: Option[Any]                              = None
-  @volatile private var recordCount:          Long                                     = 0
-  @volatile private var isRunning:            Boolean                                  = false
+  @volatile private var lastIncrementalValue: Option[Any]                                      = None
+  @volatile private var recordCount:          Long                                             = 0
+  @volatile private var isRunning:            Boolean                                          = false
   @volatile private var killSwitch:           Option[org.apache.pekko.stream.UniqueKillSwitch] = None
 
   // Load JDBC driver
@@ -120,12 +120,13 @@ class DatabaseSource(
     // Create a tick source that polls the database at regular intervals
     PekkoSource
       .tick(0.seconds, config.pollIntervalMs.milliseconds, ())
-      .mapAsync(1) { _ =>
-        Future {
-          blocking {
-            executeQuery()
+      .mapAsync(1) {
+        _ =>
+          Future {
+            blocking {
+              executeQuery()
+            }
           }
-        }
       }
       .mapConcat(identity) // Flatten List[DataRecord] to individual records
       .mapMaterializedValue(_ => NotUsed)
@@ -135,16 +136,17 @@ class DatabaseSource(
    * Execute SQL query and fetch results.
    */
   private def executeQuery(): List[DataRecord] = {
-    Using.Manager { use =>
-      val connection = use(createConnection())
-      val statement = use(prepareStatement(connection))
+    Using.Manager {
+      use =>
+        val connection = use(createConnection())
+        val statement  = use(prepareStatement(connection))
 
-      // Set fetch size for better performance
-      statement.setFetchSize(fetchSize)
+        // Set fetch size for better performance
+        statement.setFetchSize(fetchSize)
 
-      val resultSet = use(statement.executeQuery())
+        val resultSet = use(statement.executeQuery())
 
-      fetchResults(resultSet)
+        fetchResults(resultSet)
     } match {
       case Success(records) =>
         log.debug("Fetched {} records from database", records.size)
@@ -159,9 +161,8 @@ class DatabaseSource(
   /**
    * Create database connection.
    */
-  private def createConnection(): Connection = {
+  private def createConnection(): Connection =
     DriverManager.getConnection(jdbcUrl, username, password)
-  }
 
   /**
    * Prepare SQL statement with incremental query parameters.
@@ -182,10 +183,10 @@ class DatabaseSource(
 
           case "id" =>
             value match {
-              case long: Long => stmt.setLong(1, long)
-              case int: Int   => stmt.setInt(1, int)
+              case long: Long  => stmt.setLong(1, long)
+              case int: Int    => stmt.setInt(1, int)
               case str: String => stmt.setLong(1, str.toLong)
-              case _          => log.warn("Invalid ID value: {}", value)
+              case _           => log.warn("Invalid ID value: {}", value)
             }
 
           case other =>
@@ -220,28 +221,30 @@ class DatabaseSource(
    * Fetch results from ResultSet.
    */
   private def fetchResults(resultSet: ResultSet): List[DataRecord] = {
-    val metadata = resultSet.getMetaData
+    val metadata    = resultSet.getMetaData
     val columnCount = metadata.getColumnCount
     val columnNames = (1 to columnCount).map(metadata.getColumnName).toList
 
     val records = scala.collection.mutable.ListBuffer[DataRecord]()
 
     while (resultSet.next()) {
-      val data = columnNames.map { columnName =>
-        val value = Option(resultSet.getObject(columnName))
-          .map(_.toString)
-          .getOrElse("")
+      val data = columnNames.map {
+        columnName =>
+          val value = Option(resultSet.getObject(columnName))
+            .map(_.toString)
+            .getOrElse("")
 
-        columnName.toLowerCase -> value
+          columnName.toLowerCase -> value
       }.toMap
 
       // Extract ID from data or generate
       val id = data.get("id").getOrElse(UUID.randomUUID().toString)
 
       // Update incremental value
-      incrementalColumn.foreach { colName =>
-        val colValue = resultSet.getObject(colName)
-        lastIncrementalValue = Some(colValue)
+      incrementalColumn.foreach {
+        colName =>
+          val colValue = resultSet.getObject(colName)
+          lastIncrementalValue = Some(colValue)
       }
 
       val record = DataRecord(
@@ -364,8 +367,9 @@ class DatabaseSource(
   override def isHealthy: Boolean = {
     // Try to create a connection to verify health
     isRunning && Try {
-      Using.resource(createConnection()) { conn =>
-        conn.isValid(5)
+      Using.resource(createConnection()) {
+        conn =>
+          conn.isValid(5)
       }
     }.getOrElse(false)
   }

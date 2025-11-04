@@ -1,6 +1,7 @@
 package com.dataflow.sources
 
 import scala.concurrent.Future
+
 import com.dataflow.domain.commands.Command
 import com.dataflow.domain.models.{DataRecord, SourceConfig, SourceType}
 import com.dataflow.sources.Source.SourceState.Starting
