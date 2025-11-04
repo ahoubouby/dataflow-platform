@@ -4,12 +4,11 @@ import com.dataflow.sources.{Source, SourceMetricsReporter}
 
 import java.time.Instant
 import java.util.UUID
-
 import scala.concurrent.{ExecutionContext, Future}
 import scala.util.{Failure, Success, Try}
-
 import com.dataflow.domain.commands.{Command, IngestBatch}
 import com.dataflow.domain.models.{DataRecord, SourceConfig}
+import com.dataflow.sources.models.SourceState
 import org.apache.kafka.clients.consumer.ConsumerConfig
 import org.apache.kafka.common.serialization.StringDeserializer
 import org.apache.pekko.{Done, NotUsed}
@@ -414,9 +413,9 @@ class KafkaSource(
 
   override def isHealthy: Boolean = isRunning
 
-  override def state: Source.SourceState =
-    if (isRunning) Source.SourceState.Running
-    else Source.SourceState.Stopped
+  override def state: SourceState =
+    if (isRunning) SourceState.Running
+    else SourceState.Stopped
 }
 
 /**

@@ -1,5 +1,10 @@
 package com.dataflow.sources
 
+import java.sql.{Connection, DriverManager, Timestamp}
+
+import scala.concurrent.Await
+import scala.concurrent.duration._
+
 import com.dataflow.domain.commands.{Command, IngestBatch}
 import com.dimafeng.testcontainers.PostgreSQLContainer
 import com.dimafeng.testcontainers.scalatest.TestContainerForAll
@@ -11,10 +16,6 @@ import org.scalatest.BeforeAndAfterAll
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpec
 import org.testcontainers.utility.DockerImageName
-
-import java.sql.{Connection, DriverManager, Timestamp}
-import scala.concurrent.Await
-import scala.concurrent.duration._
 
 /**
  * Integration tests for DatabaseSource connector.
@@ -46,7 +47,7 @@ class DatabaseSourceSpec
     password = "testpass",
   )
 
-  private var jdbcUrl: String = _
+  private var jdbcUrl:    String     = _
   private var connection: Connection = _
 
   override def afterContainersStart(container: Containers): Unit = {
@@ -73,10 +74,13 @@ class DatabaseSourceSpec
    */
   private def initializeDatabase(): Unit = {
     val stmt = connection.createStatement()
+    val usersTable = "users"
+    val eventsTable = "events"
+    val ordersTable = "orders"
 
     // Create users table
-    stmt.execute("""
-      CREATE TABLE users (
+    stmt.execute(s"""
+      CREATE TABLE $usersTable (
         id SERIAL PRIMARY KEY,
         name VARCHAR(100) NOT NULL,
         email VARCHAR(100) NOT NULL,
@@ -86,8 +90,8 @@ class DatabaseSourceSpec
     """)
 
     // Insert test data
-    stmt.execute("""
-      INSERT INTO users (name, email, age, created_at) VALUES
+    stmt.execute(s"""
+      INSERT INTO $usersTable (name, email, age, created_at) VALUES
         ('Alice', 'alice@example.com', 30, '2024-01-01 10:00:00'),
         ('Bob', 'bob@example.com', 25, '2024-01-01 11:00:00'),
         ('Charlie', 'charlie@example.com', 35, '2024-01-01 12:00:00'),
@@ -96,8 +100,8 @@ class DatabaseSourceSpec
     """)
 
     // Create events table for incremental testing
-    stmt.execute("""
-      CREATE TABLE events (
+    stmt.execute(s"""
+      CREATE TABLE $eventsTable (
         id SERIAL PRIMARY KEY,
         event_type VARCHAR(50) NOT NULL,
         user_id INTEGER,
@@ -107,8 +111,8 @@ class DatabaseSourceSpec
     """)
 
     // Insert test events
-    stmt.execute("""
-      INSERT INTO events (event_type, user_id, data, created_at) VALUES
+    stmt.execute(s"""
+      INSERT INTO $eventsTable (event_type, user_id, data, created_at) VALUES
         ('login', 1, '{"ip": "192.168.1.1"}', '2024-01-01 10:00:00'),
         ('page_view', 1, '{"page": "/home"}', '2024-01-01 10:05:00'),
         ('click', 2, '{"button": "submit"}', '2024-01-01 10:10:00'),
@@ -127,8 +131,8 @@ class DatabaseSourceSpec
       )
     """)
 
-    stmt.execute("""
-      INSERT INTO orders (user_id, product, amount, status, created_at) VALUES
+    stmt.execute(s"""
+      INSERT INTO $ordersTable (user_id, product, amount, status, created_at) VALUES
         (1, 'Product A', 50.00, 'completed', '2024-01-01 10:00:00'),
         (2, 'Product B', 75.50, 'pending', '2024-01-01 11:00:00'),
         (1, 'Product C', 25.99, 'completed', '2024-01-01 12:00:00')
@@ -141,7 +145,7 @@ class DatabaseSourceSpec
    * Helper to insert more rows into a table.
    */
   private def insertUsers(count: Int, startId: Int = 100): Unit = {
-    val stmt = connection.createStatement()
+    val stmt   = connection.createStatement()
     val values = (startId until startId + count).map {
       i =>
         s"('User$i', 'user$i@example.com', ${20 + (i % 50)}, CURRENT_TIMESTAMP)"
@@ -173,7 +177,7 @@ class DatabaseSourceSpec
           batchSize = 10,
         )
 
-        val source = DatabaseSource("test-pipeline-db-1", config)
+        val source  = DatabaseSource("test-pipeline-db-1", config)
         val records = Await.result(
           source.stream().take(5).runWith(Sink.seq),
           10.seconds,
@@ -196,7 +200,7 @@ class DatabaseSourceSpec
           query = "SELECT * FROM users ORDER BY id",
         )
 
-        val source = DatabaseSource("test-pipeline-db-2", config)
+        val source  = DatabaseSource("test-pipeline-db-2", config)
         val records = Await.result(
           source.stream().take(3).runWith(Sink.seq),
           10.seconds,
@@ -215,7 +219,7 @@ class DatabaseSourceSpec
           query = "SELECT * FROM users WHERE age > 30",
         )
 
-        val source = DatabaseSource("test-pipeline-db-3", config)
+        val source  = DatabaseSource("test-pipeline-db-3", config)
         val records = Await.result(
           source.stream().take(10).runWith(Sink.seq),
           10.seconds,
@@ -237,7 +241,7 @@ class DatabaseSourceSpec
           """,
         )
 
-        val source = DatabaseSource("test-pipeline-db-4", config)
+        val source  = DatabaseSource("test-pipeline-db-4", config)
         val records = Await.result(
           source.stream().take(10).runWith(Sink.seq),
           10.seconds,
@@ -322,7 +326,7 @@ class DatabaseSourceSpec
           batchSize = 2,
         )
 
-        val source = DatabaseSource("test-pipeline-db-7", config)
+        val source  = DatabaseSource("test-pipeline-db-7", config)
         val records = Await.result(
           source.stream().take(5).runWith(Sink.seq),
           10.seconds,
@@ -347,11 +351,11 @@ class DatabaseSourceSpec
         val source = DatabaseSource("test-pipeline-db-8", config)
 
         val startTime = System.currentTimeMillis()
-        val records = Await.result(
+        val records   = Await.result(
           source.stream().take(100).runWith(Sink.seq),
           20.seconds,
         )
-        val duration = System.currentTimeMillis() - startTime
+        val duration  = System.currentTimeMillis() - startTime
 
         records should have size 100
         // Should complete reasonably fast (under 10 seconds)
@@ -371,20 +375,25 @@ class DatabaseSourceSpec
         )
 
         val source = DatabaseSource("test-pipeline-db-9", config)
-        val probe = TestProbe[ShardingEnvelope[Command]]()
+        val probe  = TestProbe[ShardingEnvelope[Command]]()
 
         source.start(probe.ref)
 
         // Should receive batch within poll interval
-        eventually(timeout = 15.seconds, interval = 500.milliseconds) {
-          val envelope = probe.expectMessageType[ShardingEnvelope[Command]](5.seconds)
-          envelope match {
-            case ShardingEnvelope(entityId, cmd: IngestBatch) =>
-              entityId shouldBe "test-pipeline-db-9"
-              cmd.records.nonEmpty shouldBe true
-            case _ => fail("Expected IngestBatch command")
-          }
-        }
+        eventually(
+          condition = {
+            val envelope = probe.expectMessageType[ShardingEnvelope[Command]](5.seconds)
+            envelope match {
+              case ShardingEnvelope(entityId, cmd: IngestBatch) =>
+                entityId shouldBe "test-pipeline-db-9"
+                cmd.records.nonEmpty shouldBe true
+                true
+              case _                                            => fail("Expected IngestBatch command")
+            }
+          },
+          timeout = 15.seconds,
+          interval = 500.milliseconds,
+        )
 
         Await.result(source.stop(), 5.seconds)
       }
@@ -398,7 +407,7 @@ class DatabaseSourceSpec
         )
 
         val source = DatabaseSource("test-pipeline-db-10", config)
-        val probe = TestProbe[ShardingEnvelope[Command]]()
+        val probe  = TestProbe[ShardingEnvelope[Command]]()
 
         source.start(probe.ref)
         Thread.sleep(1000)
@@ -434,9 +443,13 @@ class DatabaseSourceSpec
         Await.result(source.stop(), 5.seconds)
 
         // Should be unhealthy
-        eventually(timeout = 5.seconds) {
-          source.isHealthy shouldBe false
-        }
+        eventually(
+          condition = {
+            source.isHealthy shouldBe false
+            true
+          },
+          timeout = 5.seconds,
+        )
       }
     }
 
@@ -553,7 +566,7 @@ class DatabaseSourceSpec
           query = "SELECT id, name, age, created_at FROM users LIMIT 1",
         )
 
-        val source = DatabaseSource("test-pipeline-db-17", config)
+        val source  = DatabaseSource("test-pipeline-db-17", config)
         val records = Await.result(
           source.stream().take(1).runWith(Sink.seq),
           10.seconds,
@@ -577,8 +590,9 @@ class DatabaseSourceSpec
 
       "handle NULL values correctly" in {
         // Insert user with NULL age
+        val usersTable = "users"
         val stmt = connection.createStatement()
-        stmt.execute("INSERT INTO users (name, email, age) VALUES ('NullAge', 'null@example.com', NULL)")
+        stmt.execute(s"INSERT INTO $usersTable (name, email, age) VALUES ('NullAge', 'null@example.com', NULL)")
         stmt.close()
 
         val config = createDatabaseSourceConfig(
@@ -588,7 +602,7 @@ class DatabaseSourceSpec
           query = "SELECT * FROM users WHERE name = 'NullAge'",
         )
 
-        val source = DatabaseSource("test-pipeline-db-18", config)
+        val source  = DatabaseSource("test-pipeline-db-18", config)
         val records = Await.result(
           source.stream().take(1).runWith(Sink.seq),
           10.seconds,

@@ -1,5 +1,8 @@
 package com.dataflow.sources
 
+import scala.concurrent.{Await, Future}
+import scala.concurrent.duration._
+
 import com.dataflow.domain.commands.{Command, IngestBatch}
 import org.apache.pekko.Done
 import org.apache.pekko.actor.testkit.typed.scaladsl.TestProbe
@@ -13,9 +16,6 @@ import org.apache.pekko.stream.scaladsl.Sink
 import org.scalatest.BeforeAndAfterAll
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpec
-
-import scala.concurrent.{Await, Future}
-import scala.concurrent.duration._
 
 /**
  * Integration tests for ApiSource connector.
@@ -33,18 +33,18 @@ import scala.concurrent.duration._
 class ApiSourceSpec extends AnyWordSpec with Matchers with SourceTestFixtures with BeforeAndAfterAll {
 
   private var mockServerBinding: Option[Http.ServerBinding] = None
-  private var serverPort: Int = 0
+  private var serverPort:        Int                        = 0
 
   // Test data
   @volatile private var usersData: List[Map[String, Any]] = List(
-    Map("id" -> "user-1", "name" -> "Alice", "age" -> 30),
-    Map("id" -> "user-2", "name" -> "Bob", "age" -> 25),
+    Map("id" -> "user-1", "name" -> "Alice", "age"   -> 30),
+    Map("id" -> "user-2", "name" -> "Bob", "age"     -> 25),
     Map("id" -> "user-3", "name" -> "Charlie", "age" -> 35),
-    Map("id" -> "user-4", "name" -> "Diana", "age" -> 28),
-    Map("id" -> "user-5", "name" -> "Eve", "age" -> 32),
+    Map("id" -> "user-4", "name" -> "Diana", "age"   -> 28),
+    Map("id" -> "user-5", "name" -> "Eve", "age"     -> 32),
   )
 
-  @volatile private var requestCount: Int = 0
+  @volatile private var requestCount:   Int                = 0
   @volatile private var lastAuthHeader: Option[HttpHeader] = None
 
   override def beforeAll(): Unit = {
@@ -63,60 +63,64 @@ class ApiSourceSpec extends AnyWordSpec with Matchers with SourceTestFixtures wi
       path("users") {
         get {
           requestCount += 1
-          extractRequest { request =>
-            lastAuthHeader = request.headers.find(h => h.is("authorization") || h.name() == "x-api-key")
-            complete(
-              HttpEntity(
-                ContentTypes.`application/json`,
-                s"""{"data": ${toJson(usersData)}}"""
+          extractRequest {
+            request =>
+              lastAuthHeader = request.headers.find(h => h.is("authorization") || h.name() == "x-api-key")
+              complete(
+                HttpEntity(
+                  ContentTypes.`application/json`,
+                  s"""{"data": ${toJson(usersData)}}""",
+                ),
               )
-            )
           }
         }
       },
       // Pagination endpoint - offset-based
       path("users" / "paginated") {
         get {
-          parameters("offset".as[Int] ? 0, "limit".as[Int] ? 2) { (offset, limit) =>
-            val page = usersData.slice(offset, offset + limit)
-            complete(
-              HttpEntity(
-                ContentTypes.`application/json`,
-                s"""{"data": ${toJson(page)}, "total": ${usersData.size}, "offset": $offset, "limit": $limit}"""
+          parameters("offset".as[Int] ? 0, "limit".as[Int] ? 2) {
+            (offset, limit) =>
+              val page = usersData.slice(offset, offset + limit)
+              complete(
+                HttpEntity(
+                  ContentTypes.`application/json`,
+                  s"""{"data": ${toJson(page)}, "total": ${usersData.size}, "offset": $offset, "limit": $limit}""",
+                ),
               )
-            )
           }
         }
       },
       // Pagination endpoint - page-based
       path("users" / "pages") {
         get {
-          parameters("page".as[Int] ? 1, "limit".as[Int] ? 2) { (page, limit) =>
-            val offset = (page - 1) * limit
-            val pageData = usersData.slice(offset, offset + limit)
-            val hasMore = offset + limit < usersData.size
-            complete(
-              HttpEntity(
-                ContentTypes.`application/json`,
-                s"""{"data": ${toJson(pageData)}, "page": $page, "has_more": $hasMore}"""
+          parameters("page".as[Int] ? 1, "limit".as[Int] ? 2) {
+            (page, limit) =>
+              val offset   = (page - 1) * limit
+              val pageData = usersData.slice(offset, offset + limit)
+              val hasMore  = offset + limit < usersData.size
+              complete(
+                HttpEntity(
+                  ContentTypes.`application/json`,
+                  s"""{"data": ${toJson(pageData)}, "page": $page, "has_more": $hasMore}""",
+                ),
               )
-            )
           }
         }
       },
       // Pagination endpoint - cursor-based
       path("users" / "cursor") {
         get {
-          parameters("cursor" ? "", "limit".as[Int] ? 2) { (cursor, limit) =>
-            val offset = if (cursor.isEmpty) 0 else cursor.toInt
-            val pageData = usersData.slice(offset, offset + limit)
-            val nextCursor = if (offset + limit < usersData.size) (offset + limit).toString else ""
-            complete(
-              HttpEntity(
-                ContentTypes.`application/json`,
-                s"""{"data": ${toJson(pageData)}, "next_cursor": "$nextCursor"}"""
+          parameters("cursor" ? "", "limit".as[Int] ? 2) {
+            (cursor, limit) =>
+              val offset     = if (cursor.isEmpty) 0 else cursor.toInt
+              val pageData   = usersData.slice(offset, offset + limit)
+              val nextCursor = if (offset + limit < usersData.size) (offset + limit).toString else ""
+              complete(
+                HttpEntity(
+                  ContentTypes.`application/json`,
+                  s"""{"data": ${toJson(pageData)}, "next_cursor": "$nextCursor"}""",
+                ),
               )
-            )
           }
         }
       },
@@ -126,8 +130,8 @@ class ApiSourceSpec extends AnyWordSpec with Matchers with SourceTestFixtures wi
           complete(
             HttpEntity(
               ContentTypes.`application/json`,
-              s"""{"status": "ok", "result": {"users": ${toJson(usersData)}}}"""
-            )
+              s"""{"status": "ok", "result": {"users": ${toJson(usersData)}}}""",
+            ),
           )
         }
       },
@@ -140,7 +144,7 @@ class ApiSourceSpec extends AnyWordSpec with Matchers with SourceTestFixtures wi
     )
 
     val bindingFuture = Http().newServerAt("localhost", 0).bind(route)
-    val binding = Await.result(bindingFuture, 10.seconds)
+    val binding       = Await.result(bindingFuture, 10.seconds)
     serverPort = binding.localAddress.getPort
     mockServerBinding = Some(binding)
 
@@ -148,19 +152,21 @@ class ApiSourceSpec extends AnyWordSpec with Matchers with SourceTestFixtures wi
   }
 
   private def stopMockServer(): Unit = {
-    mockServerBinding.foreach { binding =>
-      Await.result(binding.unbind(), 5.seconds)
+    mockServerBinding.foreach {
+      binding =>
+        Await.result(binding.unbind(), 5.seconds)
     }
   }
 
   private def toJson(data: List[Map[String, Any]]): String = {
-    val items = data.map { item =>
-      val fields = item.map {
-        case (k, v: String) => s""""$k": "$v""""
-        case (k, v: Int)    => s""""$k": $v"""
-        case (k, v)         => s""""$k": "$v""""
-      }.mkString(", ")
-      s"{$fields}"
+    val items = data.map {
+      item =>
+        val fields = item.map {
+          case (k, v: String) => s""""$k": "$v""""
+          case (k, v: Int)    => s""""$k": $v"""
+          case (k, v)         => s""""$k": "$v""""
+        }.mkString(", ")
+        s"{$fields}"
     }.mkString(", ")
     s"[$items]"
   }
@@ -178,7 +184,7 @@ class ApiSourceSpec extends AnyWordSpec with Matchers with SourceTestFixtures wi
           responsePath = "data",
         )
 
-        val source = ApiSource("test-pipeline-api-1", config)
+        val source  = ApiSource("test-pipeline-api-1", config)
         val records = Await.result(
           source.stream().take(5).runWith(Sink.seq),
           10.seconds,
@@ -197,7 +203,7 @@ class ApiSourceSpec extends AnyWordSpec with Matchers with SourceTestFixtures wi
           responsePath = "data",
         )
 
-        val source = ApiSource("test-pipeline-api-2", config)
+        val source  = ApiSource("test-pipeline-api-2", config)
         val records = Await.result(
           source.stream().take(5).runWith(Sink.seq),
           10.seconds,
@@ -213,7 +219,7 @@ class ApiSourceSpec extends AnyWordSpec with Matchers with SourceTestFixtures wi
           responsePath = "result.users",
         )
 
-        val source = ApiSource("test-pipeline-api-3", config)
+        val source  = ApiSource("test-pipeline-api-3", config)
         val records = Await.result(
           source.stream().take(5).runWith(Sink.seq),
           10.seconds,
@@ -384,20 +390,25 @@ class ApiSourceSpec extends AnyWordSpec with Matchers with SourceTestFixtures wi
         )
 
         val source = ApiSource("test-pipeline-api-11", config)
-        val probe = TestProbe[ShardingEnvelope[Command]]()
+        val probe  = TestProbe[ShardingEnvelope[Command]]()
 
         source.start(probe.ref)
 
         // Should receive batch
-        eventually(timeout = 10.seconds, interval = 500.milliseconds) {
-          val envelope = probe.expectMessageType[ShardingEnvelope[Command]](5.seconds)
-          envelope match {
-            case ShardingEnvelope(entityId, cmd: IngestBatch) =>
-              entityId shouldBe "test-pipeline-api-11"
-              cmd.records.nonEmpty shouldBe true
-            case _ => fail("Expected IngestBatch command")
-          }
-        }
+        eventually(
+          condition = {
+            val envelope = probe.expectMessageType[ShardingEnvelope[Command]](5.seconds)
+            envelope match {
+              case ShardingEnvelope(entityId, cmd: IngestBatch) =>
+                entityId shouldBe "test-pipeline-api-11"
+                cmd.records.nonEmpty shouldBe true
+                true
+              case _                                            => fail("Expected IngestBatch command")
+            }
+          },
+          timeout = 10.seconds,
+          interval = 500.milliseconds,
+        )
 
         Await.result(source.stop(), 5.seconds)
       }
@@ -409,7 +420,7 @@ class ApiSourceSpec extends AnyWordSpec with Matchers with SourceTestFixtures wi
         )
 
         val source = ApiSource("test-pipeline-api-12", config)
-        val probe = TestProbe[ShardingEnvelope[Command]]()
+        val probe  = TestProbe[ShardingEnvelope[Command]]()
 
         source.start(probe.ref)
         Thread.sleep(1000)
@@ -443,9 +454,13 @@ class ApiSourceSpec extends AnyWordSpec with Matchers with SourceTestFixtures wi
         Await.result(source.stop(), 5.seconds)
 
         // Should be unhealthy
-        eventually(timeout = 5.seconds) {
-          source.isHealthy shouldBe false
-        }
+        eventually(
+          condition = {
+            source.isHealthy shouldBe false
+            true
+          },
+          timeout = 5.seconds,
+        )
       }
     }
 

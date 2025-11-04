@@ -11,6 +11,7 @@ import scala.util.{Failure, Success}
 import com.dataflow.domain.commands.{Command, IngestBatch}
 import com.dataflow.domain.models.{DataRecord, SourceConfig}
 import com.dataflow.sources.{Source, SourceMetricsReporter}
+import com.dataflow.sources.models.SourceState
 import org.apache.pekko.{Done, NotUsed}
 import org.apache.pekko.actor.typed.{ActorRef, ActorSystem}
 import org.apache.pekko.cluster.sharding.typed.ShardingEnvelope
@@ -41,7 +42,7 @@ abstract class FileSourceBase(
   implicit protected val ec: ExecutionContext = system.executionContext
   implicit protected val mat = SystemMaterializer(system).materializer
 
-  override val sourceId: String = s"${formatName}-file-source-$pipelineId-${UUID.randomUUID()}"
+  override val sourceId: String = s"$formatName-file-source-$pipelineId-${UUID.randomUUID()}"
 
   // ----- Configuration -----
   protected val filePath: Path = Paths.get(config.connectionString)
@@ -50,10 +51,10 @@ abstract class FileSourceBase(
     config.options.getOrElse("encoding", "UTF-8")
 
   // ----- State -----
-  @volatile protected var currentLineNumber: Long = 0
-  @volatile protected var resumeFromLineNumber: Long = 0
-  @volatile private var isRunning: Boolean = false
-  @volatile private var killSwitch: Option[org.apache.pekko.stream.UniqueKillSwitch] = None
+  @volatile protected var currentLineNumber:    Long                                             = 0
+  @volatile protected var resumeFromLineNumber: Long                                             = 0
+  @volatile private var isRunning:              Boolean                                          = false
+  @volatile private var killSwitch:             Option[org.apache.pekko.stream.UniqueKillSwitch] = None
 
   log.info(
     "Initialized {} id={} path={} batchSize={}",
@@ -92,7 +93,7 @@ abstract class FileSourceBase(
    * Create a line-based stream from the file.
    * Handles framing, encoding, offset filtering.
    */
-  protected def createLineStream(): PekkoSource[(String, Long), NotUsed] = {
+  protected def createLineStream(): PekkoSource[(String, Long), NotUsed] =
     FileIO
       .fromPath(filePath)
       .via(
@@ -111,8 +112,7 @@ abstract class FileSourceBase(
         case (line, idx) =>
           currentLineNumber = idx
           (line, idx)
-      }
-  }
+      }.mapMaterializedValue(_ => NotUsed)
 
   /**
    * Record metrics for a successfully parsed line.
@@ -126,9 +126,8 @@ abstract class FileSourceBase(
   /**
    * Record metrics for a parse error.
    */
-  protected def recordParseError(): Unit = {
+  protected def recordParseError(): Unit =
     SourceMetricsReporter.recordParseError(pipelineId, "file", formatName)
-  }
 
   /**
    * Create common metadata for DataRecords.
@@ -207,9 +206,9 @@ abstract class FileSourceBase(
       return Future.successful(Done)
     }
 
-    val batchId     = UUID.randomUUID().toString
-    val offset      = currentLineNumber
-    val sendTimeMs  = System.currentTimeMillis()
+    val batchId    = UUID.randomUUID().toString
+    val offset     = currentLineNumber
+    val sendTimeMs = System.currentTimeMillis()
 
     log.debug(s"Sending batch: batchId=$batchId, records=${records.size}, offset=$offset")
 
@@ -272,9 +271,9 @@ abstract class FileSourceBase(
   override def isHealthy: Boolean =
     Files.exists(filePath) && Files.isReadable(filePath) && isRunning
 
-  override def state: Source.SourceState = {
-    if (!isHealthy) Source.SourceState.Failed
-    else if (isRunning) Source.SourceState.Running
-    else Source.SourceState.Stopped
+  override def state: SourceState = {
+    if (!isHealthy) SourceState.Failed
+    else if (isRunning) SourceState.Running
+    else SourceState.Stopped
   }
 }

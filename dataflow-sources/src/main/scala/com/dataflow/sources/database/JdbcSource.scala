@@ -3,13 +3,12 @@ package com.dataflow.sources.database
 import java.sql.{Connection, DriverManager, ResultSet, Timestamp}
 import java.time.Instant
 import java.util.UUID
-
-import scala.concurrent.{blocking, ExecutionContext, Future}
+import scala.concurrent.{ExecutionContext, Future, blocking}
 import scala.concurrent.duration._
 import scala.util.{Failure, Success, Try, Using}
-
 import com.dataflow.domain.commands.{Command, IngestBatch}
 import com.dataflow.domain.models.{DataRecord, SourceConfig}
+import com.dataflow.sources.models.SourceState
 import com.dataflow.sources.{Source, SourceMetricsReporter}
 import org.apache.pekko.{Done, NotUsed}
 import org.apache.pekko.actor.typed.{ActorRef, ActorSystem}
@@ -425,9 +424,9 @@ class JdbcSource(
     }.getOrElse(false)
   }
 
-  override def state: Source.SourceState =
-    if (isRunning) Source.SourceState.Running
-    else Source.SourceState.Stopped
+  override def state: SourceState =
+    if (isRunning) SourceState.Running
+    else SourceState.Stopped
 }
 
 /**

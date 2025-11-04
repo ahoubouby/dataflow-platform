@@ -90,7 +90,7 @@ class CSVFileSource(
       record
     } match {
       case Success(record) => Some(record)
-      case Failure(ex) =>
+      case Failure(ex)     =>
         recordParseError()
         log.warn("Failed to parse CSV line {}: {}", lineNumber, ex.getMessage)
         None
@@ -102,6 +102,7 @@ class CSVFileSource(
  * Companion object with factory method.
  */
 object CSVFileSource {
+
   def apply(pipelineId: String, config: SourceConfig)(implicit system: ActorSystem[_]): CSVFileSource =
     new CSVFileSource(pipelineId, config)
 }

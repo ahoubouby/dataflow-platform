@@ -91,6 +91,7 @@ class JSONFileSource(
  * Companion object with factory method.
  */
 object JSONFileSource {
+
   def apply(pipelineId: String, config: SourceConfig)(implicit system: ActorSystem[_]): JSONFileSource =
     new JSONFileSource(pipelineId, config)
 }

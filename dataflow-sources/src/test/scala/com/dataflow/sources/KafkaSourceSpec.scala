@@ -1,6 +1,7 @@
 package com.dataflow.sources
 
 import com.dataflow.domain.commands.{Command, IngestBatch}
+import com.dataflow.sources.kafka.KafkaSource
 import com.dimafeng.testcontainers.{ForAllTestContainer, KafkaContainer}
 import org.apache.kafka.clients.producer.{KafkaProducer, ProducerConfig, ProducerRecord}
 import org.apache.kafka.common.serialization.StringSerializer

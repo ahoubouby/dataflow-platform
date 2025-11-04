@@ -4,13 +4,13 @@ import scala.concurrent.Future
 
 import com.dataflow.domain.commands.Command
 import com.dataflow.domain.models.{DataRecord, SourceConfig, SourceType}
-import com.dataflow.sources.Source.SourceState.Starting
 import com.dataflow.sources.api.RestApiSource
 import com.dataflow.sources.database.JdbcSource
 import com.dataflow.sources.file.{CSVFileSource, JSONFileSource, TextFileSource}
 import com.dataflow.sources.kafka.KafkaSource
+import com.dataflow.sources.models.SourceState
 import org.apache.pekko.Done
-import org.apache.pekko.actor.typed.ActorRef
+import org.apache.pekko.actor.typed.{ActorRef, ActorSystem}
 import org.apache.pekko.cluster.sharding.typed.ShardingEnvelope
 import org.apache.pekko.stream.scaladsl.{Source => PekkoSource}
 
@@ -107,27 +107,13 @@ trait Source {
    */
   def isHealthy: Boolean
 
-  def state: Source.SourceState
+  def state: SourceState
 }
 
 /**
  * Companion object with factory methods and utilities.
  */
 object Source {
-
-  /**
-   * Source lifecycle states.
-   */
-  sealed trait SourceState
-
-  object SourceState {
-    case object Initialized extends SourceState
-    case object Starting extends SourceState
-    case object Running extends SourceState
-    case object Stopping extends SourceState
-    case object Stopped extends SourceState
-    case object Failed extends SourceState
-  }
 
   /**
    * Source metrics for monitoring.
@@ -176,17 +162,32 @@ object Source {
  * These delegate to the Source factory method but provide format-specific names.
  */
 object FileSource {
-  def apply(pipelineId: String, config: SourceConfig)(implicit system: org.apache.pekko.actor.typed.ActorSystem[_]): Source =
+
+  def apply(
+    pipelineId: String,
+    config: SourceConfig,
+  )(implicit system: ActorSystem[_],
+  ): Source =
     Source(pipelineId, config)
 }
 
 object ApiSource {
-  def apply(pipelineId: String, config: SourceConfig)(implicit system: org.apache.pekko.actor.typed.ActorSystem[_]): Source =
+
+  def apply(
+    pipelineId: String,
+    config: SourceConfig,
+  )(implicit system: ActorSystem[_],
+  ): Source =
     Source(pipelineId, config)
 }
 
 object DatabaseSource {
-  def apply(pipelineId: String, config: SourceConfig)(implicit system: org.apache.pekko.actor.typed.ActorSystem[_]): Source =
+
+  def apply(
+    pipelineId: String,
+    config: SourceConfig,
+  )(implicit system: ActorSystem[_],
+  ): Source =
     Source(pipelineId, config)
 }
 
@@ -220,5 +221,5 @@ private class TestSourceAdapter(
 
   override def isHealthy: Boolean = true
 
-  override def state: Source.SourceState = Starting
+  override def state: SourceState = SourceState.Starting
 }
