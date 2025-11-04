@@ -170,6 +170,74 @@ trait SourceTestFixtures extends BeforeAndAfterAll { this: Suite =>
   }
 
   /**
+   * Create sample SourceConfig for API source.
+   */
+  def createApiSourceConfig(
+    apiUrl: String,
+    method: String = "GET",
+    authType: String = "none",
+    authToken: String = "",
+    authUsername: String = "",
+    authPassword: String = "",
+    paginationType: String = "none",
+    paginationParam: String = "offset",
+    paginationSizeParam: String = "limit",
+    paginationSize: Int = 100,
+    responsePath: String = "data",
+    batchSize: Int = 100,
+  ): SourceConfig = {
+    SourceConfig(
+      sourceType = SourceType.Api,
+      connectionString = apiUrl,
+      options = Map(
+        "method"                 -> method,
+        "auth-type"              -> authType,
+        "auth-token"             -> authToken,
+        "auth-username"          -> authUsername,
+        "auth-password"          -> authPassword,
+        "pagination-type"        -> paginationType,
+        "pagination-param"       -> paginationParam,
+        "pagination-size-param"  -> paginationSizeParam,
+        "pagination-size"        -> paginationSize.toString,
+        "response-path"          -> responsePath,
+      ).filter(_._2.nonEmpty),
+      batchSize = batchSize,
+      pollIntervalMs = 5000,
+    )
+  }
+
+  /**
+   * Create sample SourceConfig for Database source.
+   */
+  def createDatabaseSourceConfig(
+    jdbcUrl: String,
+    username: String = "test",
+    password: String = "test",
+    driver: String = "org.postgresql.Driver",
+    query: String = "SELECT * FROM users",
+    incrementalColumn: String = "",
+    incrementalType: String = "timestamp",
+    fetchSize: Int = 1000,
+    batchSize: Int = 100,
+  ): SourceConfig = {
+    SourceConfig(
+      sourceType = SourceType.Database,
+      connectionString = jdbcUrl,
+      options = Map(
+        "username"           -> username,
+        "password"           -> password,
+        "driver"             -> driver,
+        "query"              -> query,
+        "incremental-column" -> incrementalColumn,
+        "incremental-type"   -> incrementalType,
+        "fetch-size"         -> fetchSize.toString,
+      ).filter(_._2.nonEmpty),
+      batchSize = batchSize,
+      pollIntervalMs = 10000,
+    )
+  }
+
+  /**
    * Generate sample DataRecords for testing.
    */
   def generateSampleRecords(count: Int, recordType: String = "user"): List[DataRecord] = {
