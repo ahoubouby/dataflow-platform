@@ -1467,11 +1467,11 @@ services:
 
 The DataFlow Platform uses a sophisticated Docker-based infrastructure that provides:
 
-✅ **Event Sourcing** with Cassandra
-✅ **Message Streaming** with Kafka
-✅ **Centralized Logging** with ELK
-✅ **Read Models** with PostgreSQL
-✅ **Caching** with Redis
+✅ **Event Sourcing** with Cassandra<br>
+✅ **Message Streaming** with Kafka<br>
+✅ **Centralized Logging** with ELK<br>
+✅ **Read Models** with PostgreSQL<br>
+✅ **Caching** with Redis<br>
 ✅ **Metrics & Monitoring** with Prometheus & Grafana
 
 This architecture provides a **production-ready** environment for building scalable data pipelines with comprehensive observability.

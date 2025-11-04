@@ -1,5 +1,11 @@
 package com.dataflow.sources
 
+import java.nio.file.Files
+
+import scala.concurrent.Await
+import scala.concurrent.duration._
+import scala.jdk.CollectionConverters._
+
 import com.dataflow.domain.commands.{Command, IngestBatch}
 import org.apache.pekko.Done
 import org.apache.pekko.actor.testkit.typed.scaladsl.TestProbe
@@ -8,11 +14,6 @@ import org.apache.pekko.stream.scaladsl.Sink
 import org.scalatest.BeforeAndAfterAll
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpec
-
-import java.nio.file.Files
-import scala.concurrent.Await
-import scala.concurrent.duration._
-import scala.jdk.CollectionConverters._
 
 /**
  * Integration tests for FileSource connector.
@@ -388,6 +389,9 @@ class FileSourceSpec extends AnyWordSpec with Matchers with SourceTestFixtures w
         )
 
         // Should only get records from line 3 onwards
+        println("-------")
+        println(records.head.data)
+        println("-------")
         records.size should be <= 3 // Lines 3, 4, 5
         records.head.data("id") shouldBe "3"
       }

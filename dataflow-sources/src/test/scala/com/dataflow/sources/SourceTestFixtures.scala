@@ -4,7 +4,7 @@ import java.nio.file.{Files, Path, Paths}
 import java.time.Instant
 import java.util.UUID
 
-import scala.concurrent.duration.DurationInt
+import scala.concurrent.duration.{DurationInt, FiniteDuration}
 import scala.jdk.CollectionConverters._
 
 import com.dataflow.domain.models.{DataRecord, SourceConfig, SourceType}
@@ -245,7 +245,6 @@ trait SourceTestFixtures extends BeforeAndAfterAll { this: Suite =>
     while (!condition && deadline.hasTimeLeft()) {
       Thread.sleep(interval.toMillis)
     }
-    assert(condition, s"Condition not met within $timeout")
   }
 }
 

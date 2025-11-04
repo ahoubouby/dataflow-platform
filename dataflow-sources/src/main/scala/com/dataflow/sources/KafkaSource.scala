@@ -13,8 +13,8 @@ import org.apache.kafka.common.serialization.StringDeserializer
 import org.apache.pekko.{Done, NotUsed}
 import org.apache.pekko.actor.typed.{ActorRef, ActorSystem}
 import org.apache.pekko.cluster.sharding.typed.ShardingEnvelope
-import org.apache.pekko.kafka.scaladsl.{Committer, Consumer}
 import org.apache.pekko.kafka.{CommitterSettings, ConsumerSettings, Subscriptions}
+import org.apache.pekko.kafka.scaladsl.{Committer, Consumer}
 import org.apache.pekko.stream.{KillSwitches, SystemMaterializer}
 import org.apache.pekko.stream.scaladsl.{Keep, Sink, Source => PekkoSource}
 import org.slf4j.LoggerFactory
@@ -86,8 +86,8 @@ class KafkaSource(
     config.options.getOrElse("max-poll-records", "500")
 
   // State
-  @volatile private var currentKafkaOffset: Long                                            = 0L
-  @volatile private var isRunning:          Boolean                                         = false
+  @volatile private var currentKafkaOffset: Long                                             = 0L
+  @volatile private var isRunning:          Boolean                                          = false
   @volatile private var killSwitch:         Option[org.apache.pekko.stream.UniqueKillSwitch] = None
 
   // Kafka consumer settings
@@ -125,19 +125,20 @@ class KafkaSource(
   private def buildDataStream(): PekkoSource[DataRecord, NotUsed] = {
     Consumer
       .committableSource(consumerSettings, Subscriptions.topics(topic))
-      .map { msg =>
-        currentKafkaOffset = msg.record.offset()
+      .map {
+        msg =>
+          currentKafkaOffset = msg.record.offset()
 
-        val record = parseKafkaMessage(
-          key = msg.record.key(),
-          value = msg.record.value(),
-          topic = msg.record.topic(),
-          partition = msg.record.partition(),
-          offset = msg.record.offset(),
-          timestamp = msg.record.timestamp(),
-        )
+          val record = parseKafkaMessage(
+            key = msg.record.key(),
+            value = msg.record.value(),
+            topic = msg.record.topic(),
+            partition = msg.record.partition(),
+            offset = msg.record.offset(),
+            timestamp = msg.record.timestamp(),
+          )
 
-        (record, msg.committableOffset)
+          (record, msg.committableOffset)
       }
       .collect { case (Some(record), _) => record }
       .mapMaterializedValue(_ => NotUsed)
@@ -269,30 +270,32 @@ class KafkaSource(
       val (switch, doneF) = Consumer
         .committableSource(consumerSettings, Subscriptions.topics(topic))
         .viaMat(KillSwitches.single)(Keep.right)
-        .map { msg =>
-          currentKafkaOffset = msg.record.offset()
+        .map {
+          msg =>
+            currentKafkaOffset = msg.record.offset()
 
-          val record = parseKafkaMessage(
-            key = msg.record.key(),
-            value = msg.record.value(),
-            topic = msg.record.topic(),
-            partition = msg.record.partition(),
-            offset = msg.record.offset(),
-            timestamp = msg.record.timestamp(),
-          )
+            val record = parseKafkaMessage(
+              key = msg.record.key(),
+              value = msg.record.value(),
+              topic = msg.record.topic(),
+              partition = msg.record.partition(),
+              offset = msg.record.offset(),
+              timestamp = msg.record.timestamp(),
+            )
 
-          (record, msg.committableOffset)
+            (record, msg.committableOffset)
         }
         .collect { case (Some(record), offset) => (record, offset) }
         .groupedWithin(
           config.batchSize,
           scala.concurrent.duration.Duration.fromNanos(config.pollIntervalMs * 1000000L),
         )
-        .mapAsync(1) { recordsWithOffsets =>
-          val records    = recordsWithOffsets.map(_._1).toList
-          val lastOffset = recordsWithOffsets.last._2
+        .mapAsync(1) {
+          recordsWithOffsets =>
+            val records    = recordsWithOffsets.map(_._1).toList
+            val lastOffset = recordsWithOffsets.last._2
 
-          sendBatch(records, pipelineShardRegion).map(_ => lastOffset)
+            sendBatch(records, pipelineShardRegion).map(_ => lastOffset)
         }
         .toMat(Committer.sink(committerSettings))(Keep.both)
         .run()
