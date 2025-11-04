@@ -293,9 +293,14 @@ class KafkaSourceSpec
       "support multiple consumers in same group" in {
         val topic = "test-group-topic-2"
 
+        // Send many messages FIRST
+        val messages = (1 to 20).map(i => (s"key$i", s"value$i"))
+        sendMessages(topic, messages)
 
+        // Small delay to ensure messages are committed to Kafka
+        Thread.sleep(1000)
 
-        val groupId = "shared-group"
+        val groupId = "shared-group-" + System.currentTimeMillis()
 
         // Create two consumers in same group
         val config1 = createKafkaSourceConfig(
@@ -308,22 +313,21 @@ class KafkaSourceSpec
 
         val source1 = KafkaSource("test-pipeline-kafka-7a", config1)
         val source2 = KafkaSource("test-pipeline-kafka-7b", config2)
-        // Send many messages
-        val messages = (1 to 20).map(i => (s"key$i", s"value$i"))
-        sendMessages(topic, messages)
-        // Both should be able to consume (partitions will be balanced)
-        val future1 = source1.stream().take(10).runWith(Sink.seq)
-        val future2 = source2.stream().take(10).runWith(Sink.seq)
 
-        val records1 = Await.result(future1, 30.seconds)
-        println("-----")
-        records1.foreach(println)
+        // With same consumer group, Kafka will partition messages between consumers
+        // One consumer might get all messages if there's only 1 partition (default)
+        // So we start both and take up to 20 total with a timeout
+        import scala.concurrent.duration._
 
-        val records2 = Await.result(future2, 30.seconds)
-        println("-----")
+        val future1 = source1.stream().takeWithin(10.seconds).runWith(Sink.seq)
+        val future2 = source2.stream().takeWithin(10.seconds).runWith(Sink.seq)
 
+        val records1 = Await.result(future1, 15.seconds)
+        val records2 = Await.result(future2, 15.seconds)
 
         // Together they should consume all messages
+        // Note: With same group ID and likely 1 partition, one consumer gets all,
+        // the other gets none. Total should be 20.
         (records1.size + records2.size) shouldBe 20
       }
     }
@@ -373,7 +377,10 @@ class KafkaSourceSpec
           ),
         )
 
-        val groupId = "offset-commit-group"
+        // Small delay to ensure messages are committed to Kafka
+        Thread.sleep(1000)
+
+        val groupId = "offset-commit-group-" + System.currentTimeMillis()
         val config  = createKafkaSourceConfig(
           topic = topic,
           bootstrapServers = container.bootstrapServers,
@@ -381,26 +388,32 @@ class KafkaSourceSpec
           format = "string",
         )
 
-        // First consumer
+        // First consumer - consume all messages
         val source1 = KafkaSource("test-pipeline-kafka-9", config)
         val probe1  = TestProbe[ShardingEnvelope[Command]]()
 
         source1.start(probe1.ref)
 
-        // Wait for messages to be consumed
-        Thread.sleep(3000)
+        // Wait for messages to be consumed and committed
+        Thread.sleep(5000)
 
         Await.result(source1.stop(), 5.seconds)
 
+        // Additional delay to ensure offsets are committed before second consumer starts
+        Thread.sleep(2000)
+
         // Second consumer with same group ID should resume from committed offset
         val source2 = KafkaSource("test-pipeline-kafka-9b", config)
+
+        // Try to consume with timeout - should get no messages since all were consumed by source1
+        import scala.concurrent.duration._
         val records = Await.result(
-          source2.stream().take(1).runWith(Sink.seq),
-          30.seconds,
+          source2.stream().takeWithin(3.seconds).runWith(Sink.seq),
+          5.seconds,
         )
 
-        // Should not re-consume from beginning
-        records.size should be <= 1
+        // Should not re-consume from beginning (should be empty since all consumed)
+        records shouldBe empty
       }
 
       "start from earliest when configured" in {

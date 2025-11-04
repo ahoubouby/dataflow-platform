@@ -148,11 +148,11 @@ object Source {
   )(implicit system: org.apache.pekko.actor.typed.ActorSystem[_],
   ): Source = {
     config.sourceType match {
-      case SourceType.File  => FileSource(pipelineId, config)
-      case SourceType.Kafka => KafkaSource(pipelineId, config)
-      // case SourceType.Api      => ApiSource(pipelineId, config)
-      // case SourceType.Database => DatabaseSource(pipelineId, config)
-      case other            => throw new IllegalArgumentException(s"Unsupported source type: $other")
+      case SourceType.File     => FileSource(pipelineId, config)
+      case SourceType.Kafka    => KafkaSource(pipelineId, config)
+      case SourceType.Api      => ApiSource(pipelineId, config)
+      case SourceType.Database => DatabaseSource(pipelineId, config)
+      case other               => throw new IllegalArgumentException(s"Unsupported source type: $other")
     }
   }
 }
