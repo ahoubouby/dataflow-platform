@@ -7,7 +7,7 @@
 # Filebeat Inputs
 # ==========================================
 filebeat.inputs:
-  # DataFlow Application Logs
+  # DataFlow Application Logs (Plain Text Format)
   - type: log
     enabled: true
     paths:
@@ -16,11 +16,16 @@ filebeat.inputs:
       service: dataflow-platform
       log_type: application
     fields_under_root: true
+    # Multiline pattern for stack traces
+    # Lines starting with date are new log entries
+    # Lines NOT starting with date are continuations (stack traces)
+    multiline.type: pattern
     multiline.pattern: '^[0-9]{4}-[0-9]{2}-[0-9]{2}'
     multiline.negate: true
     multiline.match: after
-    json.keys_under_root: false
-    json.add_error_key: true
+    # Remove JSON decoder (logs are plain text, not JSON)
+    # json.keys_under_root: false
+    # json.add_error_key: true
 
   # Docker Container Logs (optional)
   - type: container
