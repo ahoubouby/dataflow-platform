@@ -6,6 +6,7 @@ import scala.util.{Failure, Success}
 import com.dataflow.aggregates.PipelineAggregate
 import com.dataflow.aggregates.coordinator.CoordinatorAggregate
 import com.dataflow.cluster.PipelineSharding
+import com.dataflow.demo.DemoRunner
 import com.dataflow.domain.commands.{Command, CoordinatorCommand}
 import com.dataflow.metrics.MetricsReporter
 import com.typesafe.config.{Config, ConfigFactory}
@@ -144,6 +145,13 @@ object Main {
     log.info(s"Metrics endpoint: http://localhost:9095/metrics")
     log.info(s"Kamon status: http://localhost:5266")
     log.info("=" * 80)
+
+    // 9. Run demo (if enabled)
+    val runDemo = sys.env.get("DATAFLOW_RUN_DEMO").exists(_.toLowerCase == "true")
+    if (runDemo) {
+      log.info("Demo mode enabled - running demo pipeline...")
+      DemoRunner.runDemo(pipelineShardRegion)
+    }
   }
 
   /**
