@@ -3,7 +3,6 @@ package com.dataflow
 import scala.concurrent.duration._
 import scala.util.{Failure, Success}
 
-import com.dataflow.aggregates.PipelineAggregate
 import com.dataflow.aggregates.coordinator.CoordinatorAggregate
 import com.dataflow.cluster.PipelineSharding
 import com.dataflow.domain.commands.{Command, CoordinatorCommand}
@@ -12,7 +11,7 @@ import com.typesafe.config.{Config, ConfigFactory}
 import org.apache.pekko.actor.typed.{ActorRef, ActorSystem}
 import org.apache.pekko.actor.typed.scaladsl.Behaviors
 import org.apache.pekko.cluster.sharding.typed.ShardingEnvelope
-import org.apache.pekko.cluster.sharding.typed.scaladsl.{ClusterSharding, Entity, EntityTypeKey}
+import org.apache.pekko.cluster.sharding.typed.scaladsl.EntityTypeKey
 import org.apache.pekko.cluster.typed.{Cluster, ClusterSingleton, ClusterSingletonSettings, SingletonActor}
 import org.apache.pekko.management.cluster.bootstrap.ClusterBootstrap
 import org.apache.pekko.management.scaladsl.PekkoManagement
@@ -41,7 +40,7 @@ object Main {
 
   def main(args: Array[String]): Unit = {
     // Load configuration
-    val config: Config = loadConfig(args)
+    val config: Config = loadConfig()
 
     // Create actor system
     val system: ActorSystem[Nothing] = ActorSystem[Nothing](
@@ -64,7 +63,7 @@ object Main {
   /**
    * Load configuration based on command line args or environment.
    */
-  private def loadConfig(args: Array[String]): Config = {
+  private def loadConfig(): Config = {
     val baseConfig = ConfigFactory.load()
 
     // Check for environment-specific config
@@ -94,7 +93,7 @@ object Main {
    * Initialize all platform components.
    */
   private def initializePlatform(system: ActorSystem[Nothing]): Unit = {
-    implicit val sys: ActorSystem[Nothing] = system
+    // implicit val sys: ActorSystem[Nothing] = system
 
     val cluster     = Cluster(system)
     val selfAddress = cluster.selfMember.address

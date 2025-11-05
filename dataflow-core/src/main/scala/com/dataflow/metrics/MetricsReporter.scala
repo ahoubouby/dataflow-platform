@@ -98,9 +98,9 @@ object MetricsReporter {
    * Should be called once at application startup.
    */
   def init(): Unit = {
-    log.info("msg=Initializing Kamon metrics")
+    log.info("[KAMON] Initializing Kamon metrics")
     Kamon.init()
-    log.info("msg=Kamon metrics initialized")
+    log.info("[KAMON] Kamon metrics initialized")
   }
 
   /**
@@ -108,9 +108,9 @@ object MetricsReporter {
    * Should be called at application shutdown.
    */
   def shutdown(): Unit = {
-    log.info("msg=Shutting down Kamon metrics")
+    log.info("[KAMON] Shutting down Kamon metrics")
     Kamon.stop()
-    log.info("msg=Kamon metrics shut down")
+    log.info("[KAMON] Kamon metrics shut down")
   }
 
   /**
@@ -126,7 +126,7 @@ object MetricsReporter {
     toState: State,
   ): Unit = {
     log.debug(
-      "msg=Record state transition pipelineId={} from={} to={}",
+      "[KAMON] Record state transition pipelineId={} from={} to={}",
       pipelineId,
       fromState.getClass.getSimpleName,
       toState.getClass.getSimpleName,
@@ -158,7 +158,7 @@ object MetricsReporter {
     processingTimeMs: Long,
   ): Unit = {
     log.debug(
-      "msg=Record batch processed pipelineId={} success={} failed={} timeMs={}",
+      "[KAMON] Record batch processed pipelineId={} success={} failed={} timeMs={}",
       pipelineId,
       successCount,
       failureCount,
@@ -197,7 +197,7 @@ object MetricsReporter {
     pipelineId: String,
     errorCode: String,
   ): Unit = {
-    log.debug("msg=Record batch failed pipelineId={} errorCode={}", pipelineId, errorCode)
+    log.debug("[KAMON] Record batch failed pipelineId={} errorCode={}", pipelineId, errorCode)
 
     batchesFailedCounter
       .withTag("pipeline_id", pipelineId)
@@ -217,7 +217,7 @@ object MetricsReporter {
     errorCode: String,
     retryCount: Int,
   ): Unit = {
-    log.debug("msg=Record retry scheduled pipelineId={} errorCode={} retryCount={}", pipelineId, errorCode, retryCount)
+    log.debug("[KAMON] Record retry scheduled pipelineId={} errorCode={} retryCount={}", pipelineId, errorCode, retryCount)
 
     retriesScheduledCounter
       .withTag("pipeline_id", pipelineId)
@@ -235,7 +235,7 @@ object MetricsReporter {
     pipelineId: String,
     batchId: String,
   ): Unit = {
-    log.debug("msg=Record batch timeout pipelineId={} batchId={}", pipelineId, batchId)
+    log.debug("[KAMON] Record batch timeout pipelineId={} batchId={}", pipelineId, batchId)
 
     batchTimeoutsCounter
       .withTag("pipeline_id", pipelineId)
@@ -252,7 +252,7 @@ object MetricsReporter {
     pipelineId: String,
     offset: Long,
   ): Unit = {
-    log.debug("msg=Record checkpoint update pipelineId={} offset={}", pipelineId, offset)
+    log.debug("[KAMON] Record checkpoint update pipelineId={} offset={}", pipelineId, offset)
 
     checkpointUpdatesCounter
       .withTag("pipeline_id", pipelineId)
@@ -269,7 +269,7 @@ object MetricsReporter {
     pipelineId: String,
     metrics: PipelineMetrics,
   ): Unit = {
-    log.debug("msg=Update pipeline metrics pipelineId={} throughput={}", pipelineId, metrics.throughputPerSecond)
+    log.debug("[KAMON] Update pipeline metrics pipelineId={} throughput={}", pipelineId, metrics.throughputPerSecond)
 
     // Update throughput gauge
     recordsThroughputGauge
