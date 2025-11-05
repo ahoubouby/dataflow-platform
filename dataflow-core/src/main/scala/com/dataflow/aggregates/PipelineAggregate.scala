@@ -1,263 +1,96 @@
 package com.dataflow.aggregates
 
-import java.time.Instant
-import java.util.UUID
-
+import com.dataflow.aggregates.handlers._
 import com.dataflow.domain.commands._
 import com.dataflow.domain.events._
 import com.dataflow.domain.models._
 import com.dataflow.domain.state._
-import org.apache.pekko.actor.typed.{ActorRef, Behavior}
-import org.apache.pekko.pattern.StatusReply
-import org.apache.pekko.persistence.typed.PersistenceId
-import org.apache.pekko.persistence.typed.scaladsl.{Effect, EventSourcedBehavior, ReplyEffect, RetentionCriteria}
+import com.dataflow.metrics.MetricsReporter
+import com.dataflow.recovery.{ErrorRecovery, TimeoutConfig}
+import org.apache.pekko.persistence.typed.{PersistenceId, RecoveryCompleted, SnapshotCompleted}
+import org.apache.pekko.persistence.typed.scaladsl.{EventSourcedBehavior, ReplyEffect, RetentionCriteria}
+import org.slf4j.LoggerFactory
 
 object PipelineAggregate {
 
   // ============================================
-  // COMMANDS - Requests to change state
+  // CONFIGURATION
   // ============================================
+
+  private val timeoutConfig = TimeoutConfig.Default
+  private val retryConfig   = ErrorRecovery.DefaultRetryConfig
+  private val log           = LoggerFactory.getLogger("PipelineAggregate")
 
   // ============================================
   // EVENT SOURCED BEHAVIOR
   // ============================================
 
   def apply(pipelineId: String): EventSourcedBehavior[Command, Event, State] = {
-    EventSourcedBehavior[Command, Event, State](
-      persistenceId = PersistenceId.ofUniqueId(pipelineId),
-      emptyState = EmptyState,
-      commandHandler = commandHandler,
-      eventHandler = eventHandler,
-    )
+    EventSourcedBehavior
+      .withEnforcedReplies[Command, Event, State](
+        persistenceId = PersistenceId.ofUniqueId(pipelineId),
+        emptyState = EmptyState,
+        commandHandler = (state, command) => commandHandler(pipelineId, state, command),
+        eventHandler = eventHandler,
+      )
       .withRetention(
-        // Take snapshot every 100 events, keep last 2 snapshots
         RetentionCriteria
           .snapshotEvery(numberOfEvents = 100, keepNSnapshots = 2)
           .withDeleteEventsOnSnapshot,
       )
-      .withTagger(event => event.tags)
+      .withTagger(event => event.tags) // tags: Set[String]
       .receiveSignal {
-        case (state, org.apache.pekko.persistence.typed.RecoveryCompleted) =>
+        case (state, RecoveryCompleted) =>
           state match {
-            case running: RunningState =>
-              println(s"Pipeline $pipelineId recovered in running state. " +
-                s"Checkpoint: offset=${running.checkpoint.offset}, " +
-                s"records=${running.checkpoint.recordsProcessed}")
-            case _                     =>
-              println(s"Pipeline $pipelineId recovered: ${state.getClass.getSimpleName}")
+            case r: RunningState =>
+              log.info(
+                "msg=Recovered pipeline state stage=running pipelineId={} offset={} recordsProcessed={}",
+                pipelineId,
+                r.checkpoint.offset,
+                r.checkpoint.recordsProcessed,
+              )
+            case other           =>
+              log.info(
+                "msg=Recovered pipeline state pipelineId={} state={}",
+                pipelineId,
+                other.getClass.getSimpleName,
+              )
           }
 
-        case (state, org.apache.pekko.persistence.typed.SnapshotCompleted(metadata)) =>
-          println(s"Snapshot completed for $pipelineId at sequence ${metadata.sequenceNr}")
-      }
-  }
-
-  // ============================================
-  // COMMAND HANDLER - Business Logic
-  // ============================================
-
-  private val commandHandler: (State, Command) => ReplyEffect[Event, State] = {
-    (state, command) =>
-      state match {
-        case EmptyState                  => handleEmptyState(command)
-        case configured: ConfiguredState => handleConfiguredState(configured, command)
-        case running: RunningState       => handleRunningState(running, command)
-        case paused: PausedState         => handlePausedState(paused, command)
-        case stopped: StoppedState       => handleStoppedState(stopped, command)
-        case failed: FailedState         => handleFailedState(failed, command)
-      }
-  }
-
-  private def handleEmptyState(command: Command): ReplyEffect[Event, State] = {
-    command match {
-      case CreatePipeline(id, name, desc, source, transforms, sink, replyTo) =>
-        // Validation
-        if (name.isEmpty) {
-          Effect.reply(replyTo)(StatusReply.error("Pipeline name cannot be empty"))
-        } else if (source.batchSize <= 0 || source.batchSize > 10000) {
-          Effect.reply(replyTo)(StatusReply.error("Batch size must be between 1 and 10000"))
-        } else if (transforms.isEmpty) {
-          Effect.reply(replyTo)(StatusReply.error("At least one transform is required"))
-        } else {
-          Effect
-            .persist(PipelineCreated(id, name, desc, source, transforms, sink, Instant.now()))
-            .thenReply(replyTo)(state => StatusReply.success(state))
-        }
-
-      case _ =>
-        Effect.reply(command.asInstanceOf[{ def replyTo: ActorRef[StatusReply[State]] }].replyTo)(
-          StatusReply.error("Pipeline must be created first"),
-        )
-    }
-  }
-
-  private def handleConfiguredState(
-    state: ConfiguredState,
-    command: Command,
-  ): ReplyEffect[Event, State] = {
-    command match {
-      case StartPipeline(_, replyTo) =>
-        Effect
-          .persist(PipelineStarted(state.pipelineId, Instant.now()))
-          .thenReply(replyTo)(newState => StatusReply.success(newState))
-
-      case UpdateConfig(_, newConfig, replyTo) =>
-        // Can update config when stopped
-        Effect
-          .persist(ConfigUpdated(state.pipelineId, newConfig, Instant.now()))
-          .thenReply(replyTo)(newState => StatusReply.success(newState))
-
-      case GetState(_, replyTo) =>
-        Effect.reply(replyTo)(state)
-
-      case _ =>
-        Effect.unhandled.thenNoReply()
-    }
-  }
-
-  private def handleRunningState(
-    state: RunningState,
-    command: Command,
-  ): ReplyEffect[Event, State] = {
-    command match {
-      case IngestBatch(_, batchId, records, sourceOffset, replyTo) =>
-        // IDEMPOTENCY CHECK - Critical for exactly-once semantics
-        if (state.processedBatchIds.contains(batchId)) {
-          // Already processed - return success without re-processing
-          Effect.reply(replyTo)(
-            StatusReply.success(BatchResult(batchId, records.size, 0, 0)),
+        case (_, SnapshotCompleted(metadata)) =>
+          log.info(
+            "msg=Snapshot completed pipelineId={} seqNr={}",
+            pipelineId,
+            metadata.sequenceNr,
           )
-        } else {
-          val startTime = System.currentTimeMillis()
-
-          // Simulate processing (in real system, this would be async)
-          val successCount = records.size // All succeeded
-          val failureCount = 0
-
-          val endTime        = System.currentTimeMillis()
-          val processingTime = endTime - startTime
-
-          Effect
-            .persist(
-              BatchIngested(state.pipelineId, batchId, records.size, sourceOffset, Instant.now()),
-              BatchProcessed(state.pipelineId, batchId, successCount, failureCount, processingTime, Instant.now()),
-              CheckpointUpdated(
-                state.pipelineId,
-                Checkpoint(sourceOffset, Instant.now(), state.checkpoint.recordsProcessed + successCount),
-                Instant.now(),
-              ),
-            )
-            .thenReply(replyTo)(
-              _ =>
-                StatusReply.success(BatchResult(batchId, successCount, failureCount, processingTime)),
-            )
-        }
-
-      case StopPipeline(_, reason, replyTo) =>
-        Effect
-          .persist(PipelineStopped(state.pipelineId, reason, state.metrics, Instant.now()))
-          .thenReply(replyTo)(newState => StatusReply.success(newState))
-
-      case PausePipeline(_, reason, replyTo) =>
-        Effect
-          .persist(PipelinePaused(state.pipelineId, reason, Instant.now()))
-          .thenReply(replyTo)(newState => StatusReply.success(newState))
-
-      case ReportFailure(_, error, replyTo) =>
-        if (error.retryable) {
-          // Transient error - log but don't fail
-          Effect.reply(replyTo)(StatusReply.success(state))
-        } else {
-          // Fatal error - fail pipeline
-          Effect
-            .persist(PipelineFailed(state.pipelineId, error, Instant.now()))
-            .thenReply(replyTo)(newState => StatusReply.success(newState))
-        }
-
-      case UpdateCheckpoint(_, checkpoint) =>
-        Effect
-          .persist(CheckpointUpdated(state.pipelineId, checkpoint, Instant.now()))
-          .thenNoReply()
-
-      case GetState(_, replyTo) =>
-        Effect.reply(replyTo)(state)
-
-      case _ =>
-        Effect.unhandled.thenNoReply()
-    }
+      }
   }
 
-  private def handlePausedState(
-    state: PausedState,
+  // ============================================
+  // COMMAND HANDLER - Delegates to State Handlers
+  // ============================================
+
+  private def commandHandler(
+    pipelineId: String,
+    state: State,
     command: Command,
   ): ReplyEffect[Event, State] = {
-    command match {
-      case ResumePipeline(_, replyTo) =>
-        Effect
-          .persist(PipelineResumed(state.pipelineId, Instant.now()))
-          .thenReply(replyTo)(newState => StatusReply.success(newState))
 
-      case StopPipeline(_, reason, replyTo) =>
-        Effect
-          .persist(PipelineStopped(state.pipelineId, reason, state.metrics, Instant.now()))
-          .thenReply(replyTo)(newState => StatusReply.success(newState))
+    log.debug(
+      "msg=Handle command pipelineId={} cmd={} state={}",
+      pipelineId,
+      command.getClass.getSimpleName,
+      state.getClass.getSimpleName,
+    )
 
-      case GetState(_, replyTo) =>
-        Effect.reply(replyTo)(state)
-
-      case IngestBatch(_, _, _, _, replyTo) =>
-        Effect.reply(replyTo)(StatusReply.error("Pipeline is paused"))
-
-      case _ =>
-        Effect.unhandled.thenNoReply()
-    }
-  }
-
-  private def handleStoppedState(
-    state: StoppedState,
-    command: Command,
-  ): ReplyEffect[Event, State] = {
-    command match {
-      case StartPipeline(_, replyTo) =>
-        // Restart from last checkpoint
-        Effect
-          .persist(PipelineStarted(state.pipelineId, Instant.now()))
-          .thenReply(replyTo)(newState => StatusReply.success(newState))
-
-      case UpdateConfig(_, newConfig, replyTo) =>
-        Effect
-          .persist(ConfigUpdated(state.pipelineId, newConfig, Instant.now()))
-          .thenReply(replyTo)(newState => StatusReply.success(newState))
-
-      case GetState(_, replyTo) =>
-        Effect.reply(replyTo)(state)
-
-      case IngestBatch(_, _, _, _, replyTo) =>
-        Effect.reply(replyTo)(StatusReply.error("Pipeline is stopped. Start it first."))
-
-      case _ =>
-        Effect.unhandled.thenNoReply()
-    }
-  }
-
-  private def handleFailedState(
-    state: FailedState,
-    command: Command,
-  ): ReplyEffect[Event, State] = {
-    command match {
-      case ResetPipeline(_, replyTo) =>
-        // Reset to configured state, allowing restart
-        Effect
-          .persist(PipelineReset(state.pipelineId, Instant.now()))
-          .thenReply(replyTo)(newState => StatusReply.success(newState))
-
-      case GetState(_, replyTo) =>
-        Effect.reply(replyTo)(state)
-
-      case _ =>
-        Effect.reply(command.asInstanceOf[{ def replyTo: ActorRef[Any] }].replyTo)(
-          StatusReply.error(s"Pipeline failed: ${state.error.message}. Reset required."),
-        )
+    // Delegate to appropriate state handler
+    state match {
+      case EmptyState         => EmptyStateHandler.handle(command)
+      case s: ConfiguredState => ConfiguredStateHandler.handle(s, command)
+      case s: RunningState    => RunningStateHandler.handle(s, command, timeoutConfig, retryConfig)
+      case s: PausedState     => PausedStateHandler.handle(s, command)
+      case s: StoppedState    => StoppedStateHandler.handle(s, command)
+      case s: FailedState     => FailedStateHandler.handle(s, command)
     }
   }
 
@@ -267,115 +100,169 @@ object PipelineAggregate {
 
   private val eventHandler: (State, Event) => State = {
     (state, event) =>
-      (state, event) match {
-        case (EmptyState, PipelineCreated(id, name, desc, source, transforms, sink, timestamp)) =>
+      event match {
+        case PipelineCreated(id, name, desc, source, transforms, sink, ts) =>
+          log.debug("msg=Evt PipelineCreated id={} name='{}'", id, name)
           ConfiguredState(
             pipelineId = id,
             name = name,
             description = desc,
             config = PipelineConfig(source, transforms, sink),
-            createdAt = timestamp,
+            createdAt = ts,
           )
 
-        case (configured: ConfiguredState, PipelineStarted(_, timestamp)) =>
-          RunningState(
-            pipelineId = configured.pipelineId,
-            name = configured.name,
-            description = configured.description,
-            config = configured.config,
-            startedAt = timestamp,
+        case PipelineStarted(_, ts) =>
+          val cfg      = state.asInstanceOf[ConfiguredState]
+          log.debug("msg=Evt PipelineStarted pipelineId={}", cfg.pipelineId)
+          val newState = RunningState(
+            pipelineId = cfg.pipelineId,
+            name = cfg.name,
+            description = cfg.description,
+            config = cfg.config,
+            startedAt = ts,
             checkpoint = Checkpoint.initial,
             metrics = PipelineMetrics.empty,
             processedBatchIds = Set.empty,
+            retryCount = 0,
+            activeBatchId = None,
+          )
+          MetricsReporter.recordStateTransition(cfg.pipelineId, state, newState)
+          newState
+
+        case BatchIngested(_, batchId, _, _, _) =>
+          val r = state.asInstanceOf[RunningState]
+          r.copy(activeBatchId = Some(batchId))
+
+        case BatchProcessed(pipelineId, batchId, ok, ko, timeMs, _) =>
+          val r          = state.asInstanceOf[RunningState]
+          // Record batch processing metrics
+          MetricsReporter.recordBatchProcessed(pipelineId, ok, ko, timeMs)
+          val newMetrics = r.metrics.incrementBatch(ok, ko, timeMs)
+          MetricsReporter.updatePipelineMetrics(pipelineId, newMetrics)
+          r.copy(
+            metrics = newMetrics,
+            processedBatchIds = r.processedBatchIds + batchId,
+            activeBatchId = None,
+            retryCount = ErrorRecovery.resetRetryCount(),
           )
 
-        case (running: RunningState, BatchProcessed(_, batchId, success, failed, processingTime, _)) =>
-          running.copy(
-            metrics = running.metrics.incrementBatch(success, failed, processingTime),
-            processedBatchIds = running.processedBatchIds + batchId,
-          )
+        case CheckpointUpdated(pipelineId, checkpoint, _) =>
+          state match {
+            case r: RunningState =>
+              MetricsReporter.recordCheckpointUpdate(pipelineId, checkpoint.offset)
+              r.copy(checkpoint = checkpoint)
+            case s               => s
+          }
 
-        case (running: RunningState, CheckpointUpdated(_, checkpoint, _)) =>
-          running.copy(checkpoint = checkpoint)
+        case RetryScheduled(pipelineId, error, retryCount, _, _) =>
+          state match {
+            case r: RunningState =>
+              log.debug("msg=Evt RetryScheduled pipelineId={} retryCount={}", r.pipelineId, retryCount)
+              MetricsReporter.recordRetryScheduled(pipelineId, error.code, retryCount)
+              r.copy(retryCount = retryCount)
+            case s               => s
+          }
 
-        case (running: RunningState, PipelineStopped(_, reason, finalMetrics, timestamp)) =>
-          StoppedState(
-            pipelineId = running.pipelineId,
-            name = running.name,
-            description = running.description,
-            config = running.config,
-            stoppedAt = timestamp,
+        case BatchTimedOut(pipelineId, batchId, timeoutMs, _) =>
+          state match {
+            case r: RunningState =>
+              log.warn("msg=Evt BatchTimedOut pipelineId={} batchId={} timeoutMs={}", r.pipelineId, batchId, timeoutMs)
+              MetricsReporter.recordBatchTimeout(pipelineId, batchId)
+              r.copy(activeBatchId = None)
+            case s               => s
+          }
+
+        case PipelineStopped(_, reason, finalMetrics, ts) =>
+          val r        = state.asInstanceOf[RunningState]
+          log.debug("msg=Evt PipelineStopped pipelineId={} reason={}", r.pipelineId, reason)
+          val newState = StoppedState(
+            pipelineId = r.pipelineId,
+            name = r.name,
+            description = r.description,
+            config = r.config,
+            stoppedAt = ts,
             stopReason = reason,
-            lastCheckpoint = running.checkpoint,
+            lastCheckpoint = r.checkpoint,
             finalMetrics = finalMetrics,
           )
+          MetricsReporter.recordStateTransition(r.pipelineId, state, newState)
+          newState
 
-        case (running: RunningState, PipelinePaused(_, reason, timestamp)) =>
-          PausedState(
-            pipelineId = running.pipelineId,
-            name = running.name,
-            description = running.description,
-            config = running.config,
-            pausedAt = timestamp,
+        case PipelinePaused(_, reason, ts) =>
+          val r        = state.asInstanceOf[RunningState]
+          log.debug("msg=Evt PipelinePaused pipelineId={} reason={}", r.pipelineId, reason)
+          val newState = PausedState(
+            pipelineId = r.pipelineId,
+            name = r.name,
+            description = r.description,
+            config = r.config,
+            pausedAt = ts,
             pauseReason = reason,
-            checkpoint = running.checkpoint,
-            metrics = running.metrics,
+            checkpoint = r.checkpoint,
+            metrics = r.metrics,
           )
+          MetricsReporter.recordStateTransition(r.pipelineId, state, newState)
+          newState
 
-        case (paused: PausedState, PipelineResumed(_, timestamp)) =>
-          RunningState(
-            pipelineId = paused.pipelineId,
-            name = paused.name,
-            description = paused.description,
-            config = paused.config,
-            startedAt = timestamp,
-            checkpoint = paused.checkpoint,
-            metrics = paused.metrics,
+        case PipelineResumed(_, ts) =>
+          val p        = state.asInstanceOf[PausedState]
+          log.debug("msg=Evt PipelineResumed pipelineId={}", p.pipelineId)
+          val newState = RunningState(
+            pipelineId = p.pipelineId,
+            name = p.name,
+            description = p.description,
+            config = p.config,
+            startedAt = ts,
+            checkpoint = p.checkpoint,
+            metrics = p.metrics,
             processedBatchIds = Set.empty,
+            retryCount = 0,
+            activeBatchId = None,
           )
+          MetricsReporter.recordStateTransition(p.pipelineId, state, newState)
+          newState
 
-        case (stopped: StoppedState, PipelineStarted(_, timestamp)) =>
-          RunningState(
-            pipelineId = stopped.pipelineId,
-            name = stopped.name,
-            description = stopped.description,
-            config = stopped.config,
-            startedAt = timestamp,
-            checkpoint = stopped.lastCheckpoint,
-            metrics = stopped.finalMetrics,
-            processedBatchIds = Set.empty,
-          )
-
-        case (running: RunningState, PipelineFailed(_, error, timestamp)) =>
-          FailedState(
-            pipelineId = running.pipelineId,
-            name = running.name,
-            description = running.description,
+        case PipelineFailed(_, error, ts) =>
+          val r        = state.asInstanceOf[RunningState]
+          log.error("msg=Evt PipelineFailed pipelineId={} code={} message={}", r.pipelineId, error.code, error.message)
+          MetricsReporter.recordBatchFailed(r.pipelineId, error.code)
+          val newState = FailedState(
+            pipelineId = r.pipelineId,
+            name = r.name,
+            description = r.description,
             error = error,
-            failedAt = timestamp,
-            lastCheckpoint = Some(running.checkpoint),
+            failedAt = ts,
+            lastCheckpoint = Some(r.checkpoint),
           )
+          MetricsReporter.recordStateTransition(r.pipelineId, state, newState)
+          newState
 
-        case (failed: FailedState, PipelineReset(_, timestamp)) =>
+        case PipelineReset(_, ts) =>
+          val f = state.asInstanceOf[FailedState]
+          log.info("msg=Evt PipelineReset pipelineId={}", f.pipelineId)
           ConfiguredState(
-            pipelineId = failed.pipelineId,
-            name = failed.name,
-            description = failed.description,
-            config = PipelineConfig(
-              SourceConfig("", "", 0, 0),
-              List.empty,
-              SinkConfig("", "", 0),
-            ),
-            createdAt = timestamp,
+            pipelineId = f.pipelineId,
+            name = f.name,
+            description = f.description,
+            config = PipelineConfig(SourceConfig( SourceType.fromString("kafka").getOrElse(SourceType.File), "", 0, 0), List.empty, SinkConfig("", "", 0)),
+            createdAt = ts,
           )
 
-        case (configured: ConfiguredState, ConfigUpdated(_, newConfig, _)) =>
-          configured.copy(config = newConfig)
+        case ConfigUpdated(_, newConfig, _) =>
+          state match {
+            case c: ConfiguredState =>
+              log.debug("msg=Evt ConfigUpdated pipelineId={}", c.pipelineId)
+              c.copy(config = newConfig)
+            case s: StoppedState    =>
+              log.debug("msg=Evt ConfigUpdated (stopped) pipelineId={}", s.pipelineId)
+              s.copy(config = newConfig)
+            case s                  => s
+          }
 
-        case (stopped: StoppedState, ConfigUpdated(_, newConfig, _)) =>
-          stopped.copy(config = newConfig)
-
-        case _ => state
+        case other =>
+          // No state change
+          log.debug("msg=Evt ignored type={}", other.getClass.getSimpleName)
+          state
       }
   }
 }

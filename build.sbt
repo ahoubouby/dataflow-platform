@@ -18,7 +18,7 @@ ThisBuild / organization := "com.dataflow"
 // Apache Pekko Versions
 // Pekko 1.0.x = Akka 2.6.x API compatibility
 // Pekko 1.1.x = Akka 2.8.x API compatibility (RECOMMENDED)
-lazy val pekkoVersion                     = "1.1.2" // Core Pekko framework
+lazy val pekkoVersion                     = "1.1.3" // Core Pekko framework
 lazy val pekkoHttpVersion                 = "1.1.0" // HTTP server/client
 lazy val pekkoPersistenceCassandraVersion = "1.1.0" // Cassandra persistence plugin
 lazy val pekkoConnectorsVersion           = "1.1.0" // Connectors (Alpakka equivalent)
@@ -31,6 +31,7 @@ lazy val logbackVersion        = "1.4.14" // Logging implementation
 lazy val scalaTestVersion      = "3.2.17" // Testing framework
 lazy val scalaMockVersion      = "5.2.0"  // Mocking framework
 lazy val testContainersVersion = "0.41.0" // Docker containers for tests
+lazy val kamonVersion          = "2.7.5"  // Metrics and tracing
 
 // ============================================
 // COMMON SETTINGS
@@ -102,12 +103,25 @@ lazy val dataflowCore = (project in file("dataflow-core"))
       "org.apache.pekko" %% "pekko-persistence-query" % pekkoVersion,
       // Cassandra journal plugin (event store)
       "org.apache.pekko" %% "pekko-persistence-cassandra" % pekkoPersistenceCassandraVersion,
+      "org.apache.pekko" %% "pekko-persistence-cassandra-launcher" % "1.1.0" % Test,
+      "com.datastax.oss" % "java-driver-core" % "4.17.0", // Cassandra driver
       // PEKKO CLUSTER: Distributed actor system
       "org.apache.pekko" %% "pekko-cluster-typed" % pekkoVersion,
       // Cluster Sharding - distribute entities across nodes
       "org.apache.pekko" %% "pekko-cluster-sharding-typed" % pekkoVersion,
       // Cluster tools (pub-sub, distributed data, singleton)
       "org.apache.pekko" %% "pekko-cluster-tools" % pekkoVersion,
+      // ==========================================
+      // PEKKO MANAGEMENT: Cluster bootstrap and health checks
+      // ==========================================
+      // Core management functionality
+      "org.apache.pekko" %% "pekko-management" % pekkoManagementVersion,
+      // Cluster HTTP management API
+      "org.apache.pekko" %% "pekko-management-cluster-http" % pekkoManagementVersion,
+      // Cluster Bootstrap for automatic cluster formation
+      "org.apache.pekko" %% "pekko-management-cluster-bootstrap" % pekkoManagementVersion,
+      // Discovery mechanism (for K8s, DNS, or config-based discovery)
+      "org.apache.pekko" %% "pekko-discovery" % pekkoVersion,
       // SERIALIZATION: Jackson for JSON/CBOR serialization
       "org.apache.pekko" %% "pekko-serialization-jackson" % pekkoVersion,
       // SLF4J bridge
@@ -116,6 +130,19 @@ lazy val dataflowCore = (project in file("dataflow-core"))
       "ch.qos.logback" % "logback-classic" % logbackVersion,
       // Configuration library
       "com.typesafe" % "config" % "1.4.3",
+      // Validation library
+      "com.wix" %% "accord-core" % "0.7.6",
+      // ==========================================
+      // METRICS AND MONITORING
+      // ==========================================
+      // Kamon core - metrics and tracing
+      "io.kamon" %% "kamon-core" % kamonVersion,
+      // Prometheus reporter - export metrics to Prometheus
+      "io.kamon" %% "kamon-prometheus" % kamonVersion,
+      // System metrics - CPU, memory, GC
+      "io.kamon" %% "kamon-system-metrics" % kamonVersion,
+      // Pekko instrumentation - actor metrics
+      "io.kamon" %% "kamon-akka" % kamonVersion,          // Note: Uses Akka naming but works with Pekko
       // Actor TestKit
       "org.apache.pekko" %% "pekko-actor-testkit-typed" % pekkoVersion % Test,
       // Persistence TestKit (in-memory journal for tests)
@@ -187,6 +214,7 @@ lazy val dataflowSources = (project in file("dataflow-sources"))
       "com.dimafeng" %% "testcontainers-scala-kafka" % testContainersVersion % Test,
       "com.dimafeng" %% "testcontainers-scala-postgresql" % testContainersVersion % Test,
     ),
+    coverageExcludedFiles := ".*TestSource.scala",
   )
 
 // ============================================
@@ -384,3 +412,29 @@ lazy val dataflowProjections = (project in file("dataflow-projections"))
       "com.dimafeng" %% "testcontainers-scala-cassandra" % testContainersVersion % Test,
     ),
   )
+
+ThisBuild / dependencyOverrides ++= Seq(
+  "org.apache.pekko" %% "pekko-actor" % pekkoVersion,
+  "org.apache.pekko" %% "pekko-actor-typed" % pekkoVersion,
+  "org.apache.pekko" %% "pekko-stream" % pekkoVersion,
+  "org.apache.pekko" %% "pekko-stream-typed" % pekkoVersion,
+  "org.apache.pekko" %% "pekko-slf4j" % pekkoVersion,
+  "org.apache.pekko" %% "pekko-serialization-jackson" % pekkoVersion,
+  "org.apache.pekko" %% "pekko-cluster" % pekkoVersion,
+  "org.apache.pekko" %% "pekko-cluster-typed" % pekkoVersion,
+  "org.apache.pekko" %% "pekko-cluster-sharding" % pekkoVersion,
+  "org.apache.pekko" %% "pekko-cluster-sharding-typed" % pekkoVersion,
+  "org.apache.pekko" %% "pekko-distributed-data" % pekkoVersion,
+  "org.apache.pekko" %% "pekko-persistence" % pekkoVersion,
+  "org.apache.pekko" %% "pekko-persistence-typed" % pekkoVersion,
+  "org.apache.pekko" %% "pekko-actor-testkit-typed" % pekkoVersion,
+  "org.apache.pekko" %% "pekko-stream-testkit" % pekkoVersion,
+  "org.apache.pekko" %% "pekko-persistence-testkit" % pekkoVersion,
+  "org.apache.pekko" %% "pekko-multi-node-testkit" % pekkoVersion,
+  "org.apache.pekko" %% "pekko-testkit" % pekkoVersion,
+  "org.apache.pekko" %% "pekko-coordination" % pekkoVersion,
+  "org.apache.pekko" %% "pekko-cluster-tools" % pekkoVersion,
+  "org.apache.pekko" %% "pekko-protobuf-v3" % pekkoVersion,
+  "org.apache.pekko" %% "pekko-pki" % pekkoVersion,
+  "org.apache.pekko" %% "pekko-remote" % pekkoVersion,
+)
