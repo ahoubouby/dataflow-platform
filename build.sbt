@@ -103,6 +103,8 @@ lazy val dataflowCore = (project in file("dataflow-core"))
       "org.apache.pekko" %% "pekko-persistence-query" % pekkoVersion,
       // Cassandra journal plugin (event store)
       "org.apache.pekko" %% "pekko-persistence-cassandra" % pekkoPersistenceCassandraVersion,
+      "org.apache.pekko" %% "pekko-persistence-cassandra-launcher" % "1.1.0" % Test,
+      "com.datastax.oss" % "java-driver-core" % "4.17.0", // Cassandra driver
       // PEKKO CLUSTER: Distributed actor system
       "org.apache.pekko" %% "pekko-cluster-typed" % pekkoVersion,
       // Cluster Sharding - distribute entities across nodes
@@ -140,7 +142,7 @@ lazy val dataflowCore = (project in file("dataflow-core"))
       // System metrics - CPU, memory, GC
       "io.kamon" %% "kamon-system-metrics" % kamonVersion,
       // Pekko instrumentation - actor metrics
-      "io.kamon" %% "kamon-akka" % kamonVersion, // Note: Uses Akka naming but works with Pekko
+      "io.kamon" %% "kamon-akka" % kamonVersion,          // Note: Uses Akka naming but works with Pekko
       // Actor TestKit
       "org.apache.pekko" %% "pekko-actor-testkit-typed" % pekkoVersion % Test,
       // Persistence TestKit (in-memory journal for tests)
