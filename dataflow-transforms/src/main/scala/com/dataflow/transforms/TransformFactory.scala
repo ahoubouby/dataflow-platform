@@ -28,7 +28,7 @@ object TransformFactory {
    * @return Success with Transform, or Failure with error
    */
   def create(config: TransformationConfig): Try[Transform] = {
-    logger.info(s"Creating transform of type: ${config.transformType}")
+    logger.info(s"Creating transform of type: ${config.transformType.name}")
 
     Try {
       config match {
@@ -56,13 +56,13 @@ object TransformFactory {
       }
     } match {
       case Success(transform) =>
-        logger.info(s"Successfully created transform: ${transform.transformType}")
+        logger.info(s"Successfully created transform: ${transform.transformType.name}")
         Success(transform)
 
       case Failure(ex) =>
-        logger.error(s"Failed to create transform: ${config.transformType}", ex)
+        logger.error(s"Failed to create transform: ${config.transformType.name}", ex)
         Failure(new TransformCreationException(
-          s"Failed to create transform: ${config.transformType}",
+          s"Failed to create transform: ${config.transformType.name}",
           ex
         ))
     }

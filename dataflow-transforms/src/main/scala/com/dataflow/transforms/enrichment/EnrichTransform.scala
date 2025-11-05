@@ -1,7 +1,7 @@
 package com.dataflow.transforms.enrichment
 
 import com.dataflow.domain.models.DataRecord
-import com.dataflow.transforms.domain.{EnrichConfig, StatefulTransform}
+import com.dataflow.transforms.domain.{EnrichConfig, StatefulTransform, TransformType}
 import org.apache.pekko.NotUsed
 import org.apache.pekko.stream.scaladsl.Flow
 import org.slf4j.LoggerFactory
@@ -23,7 +23,7 @@ class EnrichTransform(config: EnrichConfig) extends StatefulTransform {
 
   private val logger = LoggerFactory.getLogger(getClass)
 
-  override def transformType: String = "enrich"
+  override def transformType: TransformType = TransformType.Enrich
 
   override def flow: Flow[DataRecord, DataRecord, NotUsed] = {
     // TODO: Implement enrichment with external lookup

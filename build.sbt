@@ -240,8 +240,7 @@ lazy val dataflowTransforms = (project in file("dataflow-transforms"))
       "io.circe" %% "circe-core" % "0.14.15",
       "io.circe" %% "circe-generic" % "0.14.15",
       "io.circe" %% "circe-parser" % "0.14.15",
-      // JSONPath for filter expressions
-      "io.gatling" %% "jsonpath" % "1.1.0",
+      "io.circe" %% "circe-optics" % "0.15.0",
       // ==========================================
       // SCHEMA VALIDATION
       // ==========================================

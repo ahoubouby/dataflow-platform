@@ -1,10 +1,9 @@
 package com.dataflow.transforms.filters
 
 import com.dataflow.domain.models.DataRecord
-import com.dataflow.transforms.domain.{FilterConfig, StatelessTransform, ErrorHandlingStrategy}
+import com.dataflow.transforms.domain.{FilterConfig, StatelessTransform, ErrorHandlingStrategy, TransformType}
 import io.circe.parser._
 import io.circe.Json
-import io.gatling.jsonpath.JsonPath
 import org.apache.pekko.NotUsed
 import org.apache.pekko.stream.scaladsl.Flow
 import org.slf4j.LoggerFactory
@@ -14,17 +13,13 @@ import scala.util.{Try, Success, Failure}
 /**
  * Filter transformation: Keep only records matching a condition.
  *
- * Supports two types of expressions:
- *
- * 1. JSONPath expressions (for complex JSON queries):
- *    - "$.age > 18"
- *    - "$.user.premium == true"
- *    - "$.amount >= 100"
- *
- * 2. Simple field comparisons (for basic string matching):
+ * Supports simple field comparisons:
  *    - "status == active"
  *    - "type != test"
- *    - "level == premium"
+ *    - "age > 18"
+ *    - "level >= 5"
+ *
+ * For complex JSON queries, use circe-optics or implement JSONPath support later.
  *
  * Records that don't match the filter are dropped from the stream.
  * Malformed records can be skipped (default) or cause pipeline failure.
@@ -35,7 +30,7 @@ class FilterTransform(config: FilterConfig) extends StatelessTransform {
 
   private val logger = LoggerFactory.getLogger(getClass)
 
-  override def transformType: String = "filter"
+  override def transformType: TransformType = TransformType.Filter
 
   override def flow: Flow[DataRecord, DataRecord, NotUsed] = {
     Flow[DataRecord]
@@ -75,51 +70,19 @@ class FilterTransform(config: FilterConfig) extends StatelessTransform {
   private def evaluateFilter(record: DataRecord): Try[Boolean] = {
     Try {
       val expression = config.expression.trim
-
-      // Determine if this is a JSONPath expression or simple comparison
-      if (expression.startsWith("$.")) {
-        evaluateJsonPathExpression(record, expression)
-      } else {
-        evaluateSimpleExpression(record, expression)
-      }
+      evaluateSimpleExpression(record, expression)
     }
   }
 
   /**
-   * Evaluate JSONPath expressions like "$.age > 18"
-   */
-  private def evaluateJsonPathExpression(record: DataRecord, expression: String): Boolean = {
-    // Convert DataRecord to JSON
-    val jsonString = recordToJson(record)
-
-    // Parse JSON
-    parse(jsonString) match {
-      case Right(json) =>
-        // Extract path and operator
-        parseJsonPathExpression(expression) match {
-          case Some((path, operator, value)) =>
-            evaluateJsonPathCondition(json, path, operator, value)
-
-          case None =>
-            logger.warn(s"Failed to parse JSONPath expression: $expression")
-            false
-        }
-
-      case Left(error) =>
-        logger.warn(s"Failed to parse record as JSON: ${error.getMessage}")
-        false
-    }
-  }
-
-  /**
-   * Evaluate simple field comparisons like "status == active"
+   * Evaluate simple field comparisons like "status == active" or "age > 18"
    */
   private def evaluateSimpleExpression(record: DataRecord, expression: String): Boolean = {
     // Parse expression: "field operator value"
     val parts = expression.split("\\s+")
 
     if (parts.length != 3) {
-      logger.warn(s"Invalid simple expression format: $expression (expected: field operator value)")
+      logger.warn(s"Invalid expression format: $expression (expected: field operator value)")
       return false
     }
 
@@ -151,58 +114,6 @@ class FilterTransform(config: FilterConfig) extends StatelessTransform {
   }
 
   /**
-   * Parse JSONPath expression into (path, operator, value).
-   * Example: "$.age > 18" -> ("$.age", ">", "18")
-   */
-  private def parseJsonPathExpression(expression: String): Option[(String, String, String)] = {
-    // Find operator
-    val operators = Seq("==", "!=", ">=", "<=", ">", "<")
-
-    operators.collectFirst {
-      case op if expression.contains(op) =>
-        val parts = expression.split(op, 2).map(_.trim)
-        if (parts.length == 2) {
-          Some((parts(0), op, parts(1)))
-        } else {
-          None
-        }
-    }.flatten
-  }
-
-  /**
-   * Evaluate JSONPath condition.
-   */
-  private def evaluateJsonPathCondition(json: Json, path: String, operator: String, expectedValue: String): Boolean = {
-    Try {
-      val jsonPath = JsonPath.compile(path).getOrElse {
-        logger.warn(s"Failed to compile JSONPath: $path")
-        return false
-      }
-
-      val result = jsonPath.query(json.noSpaces)
-
-      result.headOption match {
-        case Some(actualValue) =>
-          operator match {
-            case "==" => actualValue.toString == expectedValue
-            case "!=" => actualValue.toString != expectedValue
-            case ">" => compareNumeric(actualValue.toString, expectedValue, _ > _)
-            case ">=" => compareNumeric(actualValue.toString, expectedValue, _ >= _)
-            case "<" => compareNumeric(actualValue.toString, expectedValue, _ < _)
-            case "<=" => compareNumeric(actualValue.toString, expectedValue, _ <= _)
-            case _ =>
-              logger.warn(s"Unsupported operator: $operator")
-              false
-          }
-
-        case None =>
-          logger.debug(s"JSONPath $path returned no results")
-          false
-      }
-    }.getOrElse(false)
-  }
-
-  /**
    * Compare numeric values.
    */
   private def compareNumeric(v1: String, v2: String, op: (Double, Double) => Boolean): Boolean = {
@@ -215,23 +126,5 @@ class FilterTransform(config: FilterConfig) extends StatelessTransform {
       logger.debug(s"Non-numeric comparison: $v1 vs $v2")
       false
     }
-  }
-
-  /**
-   * Convert DataRecord to JSON string.
-   */
-  private def recordToJson(record: DataRecord): String = {
-    import io.circe.syntax._
-    import io.circe.generic.auto._
-
-    // Convert data map to JSON
-    val dataJson = record.data.asJson
-
-    // Combine with metadata if needed
-    Json.obj(
-      "id" -> Json.fromString(record.id),
-      "data" -> dataJson,
-      "metadata" -> record.metadata.asJson
-    ).noSpaces
   }
 }

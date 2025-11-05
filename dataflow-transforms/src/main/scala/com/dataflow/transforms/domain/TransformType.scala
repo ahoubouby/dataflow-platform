@@ -10,7 +10,7 @@ import scala.concurrent.duration.FiniteDuration
  * with type-safe, structured configuration for each transform type.
  */
 sealed trait TransformationConfig extends CborSerializable {
-  def transformType: String
+  def transformType: TransformType
 }
 
 // ============================================
@@ -30,7 +30,7 @@ sealed trait TransformationConfig extends CborSerializable {
 final case class FilterConfig(
   expression: String
 ) extends TransformationConfig {
-  override def transformType: String = "filter"
+  override def transformType: TransformType = TransformType.Filter
 }
 
 /**
@@ -49,7 +49,7 @@ final case class MapConfig(
   mappings: Map[String, String],
   preserveUnmapped: Boolean = true
 ) extends TransformationConfig {
-  override def transformType: String = "map"
+  override def transformType: TransformType = TransformType.Map
 }
 
 /**
@@ -68,7 +68,7 @@ final case class FlatMapConfig(
   targetField: Option[String] = None,
   preserveParent: Boolean = true
 ) extends TransformationConfig {
-  override def transformType: String = "flatMap"
+  override def transformType: TransformType = TransformType.FlatMap
 }
 
 // ============================================
@@ -93,7 +93,7 @@ final case class AggregateConfig(
   aggregations: Map[String, AggregationType],
   windowSize: FiniteDuration
 ) extends TransformationConfig {
-  override def transformType: String = "aggregate"
+  override def transformType: TransformType = TransformType.Aggregate
 }
 
 /**
@@ -148,7 +148,7 @@ final case class EnrichConfig(
   cacheEnabled: Boolean = true,
   cacheTtl: Option[FiniteDuration] = None
 ) extends TransformationConfig {
-  override def transformType: String = "enrich"
+  override def transformType: TransformType = TransformType.Enrich
 }
 
 /**

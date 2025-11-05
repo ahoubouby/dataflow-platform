@@ -1,7 +1,7 @@
 package com.dataflow.transforms.aggregation
 
 import com.dataflow.domain.models.DataRecord
-import com.dataflow.transforms.domain.{AggregateConfig, StatefulTransform}
+import com.dataflow.transforms.domain.{AggregateConfig, StatefulTransform, TransformType}
 import org.apache.pekko.NotUsed
 import org.apache.pekko.stream.scaladsl.Flow
 import org.slf4j.LoggerFactory
@@ -22,7 +22,7 @@ class AggregateTransform(config: AggregateConfig) extends StatefulTransform {
 
   private val logger = LoggerFactory.getLogger(getClass)
 
-  override def transformType: String = "aggregate"
+  override def transformType: TransformType = TransformType.Aggregate
 
   override def flow: Flow[DataRecord, DataRecord, NotUsed] = {
     // TODO: Implement windowed aggregation

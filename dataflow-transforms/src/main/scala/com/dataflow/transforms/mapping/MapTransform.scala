@@ -1,7 +1,7 @@
 package com.dataflow.transforms.mapping
 
 import com.dataflow.domain.models.DataRecord
-import com.dataflow.transforms.domain.{MapConfig, StatelessTransform, ErrorHandlingStrategy}
+import com.dataflow.transforms.domain.{MapConfig, StatelessTransform, ErrorHandlingStrategy, TransformType}
 import org.apache.pekko.NotUsed
 import org.apache.pekko.stream.scaladsl.Flow
 import org.slf4j.LoggerFactory
@@ -38,7 +38,7 @@ class MapTransform(config: MapConfig) extends StatelessTransform {
 
   private val logger = LoggerFactory.getLogger(getClass)
 
-  override def transformType: String = "map"
+  override def transformType: TransformType = TransformType.Map
 
   override def flow: Flow[DataRecord, DataRecord, NotUsed] = {
     Flow[DataRecord].map { record =>

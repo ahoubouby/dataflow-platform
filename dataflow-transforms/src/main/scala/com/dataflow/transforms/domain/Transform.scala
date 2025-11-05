@@ -18,9 +18,9 @@ import org.apache.pekko.stream.scaladsl.Flow
  */
 trait Transform {
   /**
-   * The name/type of this transform (for logging and debugging).
+   * The type of this transform (type-safe ADT).
    */
-  def transformType: String
+  def transformType: TransformType
 
   /**
    * The Pekko Streams Flow that performs the transformation.
