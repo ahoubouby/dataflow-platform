@@ -109,6 +109,17 @@ lazy val dataflowCore = (project in file("dataflow-core"))
       "org.apache.pekko" %% "pekko-cluster-sharding-typed" % pekkoVersion,
       // Cluster tools (pub-sub, distributed data, singleton)
       "org.apache.pekko" %% "pekko-cluster-tools" % pekkoVersion,
+      // ==========================================
+      // PEKKO MANAGEMENT: Cluster bootstrap and health checks
+      // ==========================================
+      // Core management functionality
+      "org.apache.pekko" %% "pekko-management" % pekkoManagementVersion,
+      // Cluster HTTP management API
+      "org.apache.pekko" %% "pekko-management-cluster-http" % pekkoManagementVersion,
+      // Cluster Bootstrap for automatic cluster formation
+      "org.apache.pekko" %% "pekko-management-cluster-bootstrap" % pekkoManagementVersion,
+      // Discovery mechanism (for K8s, DNS, or config-based discovery)
+      "org.apache.pekko" %% "pekko-discovery" % pekkoVersion,
       // SERIALIZATION: Jackson for JSON/CBOR serialization
       "org.apache.pekko" %% "pekko-serialization-jackson" % pekkoVersion,
       // SLF4J bridge

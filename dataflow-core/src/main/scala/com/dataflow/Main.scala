@@ -14,6 +14,8 @@ import org.apache.pekko.actor.typed.scaladsl.Behaviors
 import org.apache.pekko.cluster.sharding.typed.ShardingEnvelope
 import org.apache.pekko.cluster.sharding.typed.scaladsl.{ClusterSharding, Entity, EntityTypeKey}
 import org.apache.pekko.cluster.typed.{Cluster, ClusterSingleton, ClusterSingletonSettings, SingletonActor}
+import org.apache.pekko.management.cluster.bootstrap.ClusterBootstrap
+import org.apache.pekko.management.scaladsl.PekkoManagement
 import org.slf4j.{Logger, LoggerFactory}
 
 /**
@@ -108,12 +110,13 @@ object Main {
 
     // 2. Initialize Pekko Management (for cluster bootstrap and health checks)
     log.info("Starting Pekko Management...")
-    // PekkoManagement(system).start()
+    val management = PekkoManagement(system)
+    management.start()
     log.info("✓ Pekko Management started")
 
     // 3. Initialize Cluster Bootstrap (for automatic cluster formation)
     log.info("Starting Cluster Bootstrap...")
-    // ClusterBootstrap(system).start()
+    ClusterBootstrap(system).start()
     log.info("✓ Cluster Bootstrap started")
 
     // 4. Wait for cluster to be up
@@ -140,6 +143,7 @@ object Main {
     log.info("=" * 80)
     log.info(s"Cluster address: $selfAddress")
     log.info(s"Roles: ${cluster.selfMember.roles.mkString(", ")}")
+    log.info(s"Management endpoint: http://localhost:8558")
     log.info(s"Metrics endpoint: http://localhost:9095/metrics")
     log.info(s"Kamon status: http://localhost:5266")
     log.info("=" * 80)
