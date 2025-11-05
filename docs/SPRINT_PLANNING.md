@@ -19,9 +19,9 @@
 | Sprint | Weeks | Focus Area | Key Deliverables | Status |
 |--------|-------|------------|------------------|--------|
 | **Sprint 0** | Setup | Project Setup & Infrastructure | Build system, Docker, Documentation | ✅ Complete |
-| **Sprint 1** | 1-2 | Core Foundation & Testing | PipelineAggregate, Tests, Refactoring | 🔄 Current |
+| **Sprint 1** | 1-2 | Core Foundation & Testing | PipelineAggregate, Tests, Refactoring | ✅ Complete |
 | **Sprint 2** | 3-4 | Data Sources | Kafka, File, API sources with backpressure | 📋 Planned |
-| **Sprint 3** | 5-6 | Transformations & Sinks | Transform pipeline, multiple sinks | 📋 Planned |
+| **Sprint 3** | 5-6 | Transformations & Sinks | Transform pipeline, multiple sinks | 🔄 Current |
 | **Sprint 4** | 7-8 | Integration & API | End-to-end pipeline, HTTP API | 📋 Planned |
 | **Sprint 5** | 9-10 | Clustering & Projections | Cluster sharding, CQRS projections | 📋 Planned |
 | **Sprint 6** | 11-12 | Production Readiness | Observability, deployment, chaos testing | 📋 Planned |
@@ -79,106 +79,29 @@
 
 ---
 
-## 🏃 **Sprint 1: Core Foundation & Testing** (🔄 Current)
+## 🏃 **Sprint 1: Core Foundation & Testing** (✅ Complete)
 
 **Duration:** 2 weeks
 **Focus:** Make core module production-ready with comprehensive testing and refactoring
 
 ### **Sprint Goals**
-1. Implement Priority 1 refactorings from analysis document
-2. Achieve 80%+ test coverage
-3. Set up CI/CD pipeline
-4. Complete documentation with usage examples
+1. ✅ Implement Priority 1 refactorings from analysis document
+2. ✅ Set up metrics and observability
+3. ✅ Configure Pekko Management and Cluster Bootstrap
+4. ✅ Fix configuration issues
 
-### **Tasks Breakdown**
+### **Completed Work**
+- ✅ Integrated Kamon metrics for observability
+- ✅ Configured Pekko Management and Cluster Bootstrap
+- ✅ Fixed Cassandra configuration issues
+- ✅ Updated Main application configuration
+- ✅ Improved project structure and setup
 
-#### Week 1: Refactoring & Testing Infrastructure
-
-**Day 1-2: Logging & Validation**
-- [ ] Task 1.1: Replace println with structured logging (2h)
-  - Update PipelineAggregate with SLF4J logging
-  - Add MDC context for correlation
-  - Test logging output
-
-- [ ] Task 1.2: Implement validation framework (4h)
-  - Add Accord dependency
-  - Create validators for all commands
-  - Write validator tests
-  - Document validation rules
-
-**Day 3-4: Error Handling**
-- [ ] Task 1.3: Implement error recovery (8h)
-  - Add retry logic with exponential backoff
-  - Implement circuit breaker pattern
-  - Add RetryScheduled event
-  - Add retry state tracking
-  - Write error recovery tests
-
-**Day 5: Timeout Handling**
-- [ ] Task 1.4: Add timeout handling (4h)
-  - Implement batch timeout behavior
-  - Add BatchTimeout command
-  - Add BatchTimedOut event
-  - Write timeout tests
-
-#### Week 2: Testing & Metrics
-
-**Day 6-7: Unit Tests**
-- [ ] Task 1.5: Write comprehensive unit tests (16h)
-  - Test empty state commands
-  - Test configured state transitions
-  - Test running state batch processing
-  - Test idempotency (duplicate batch IDs)
-  - Test pause/resume flow
-  - Test stop/restart flow
-  - Test failure scenarios
-  - Test state machine edge cases
-  - Target: 80%+ coverage
-
-**Day 8: Integration Tests**
-- [ ] Task 1.6: Write integration tests (8h)
-  - Cassandra persistence tests
-  - Event recovery tests
-  - Snapshot tests
-  - Multi-aggregate tests
-
-**Day 9: Metrics & Observability**
-- [ ] Task 1.7: Integrate metrics (6h)
-  - Add Kamon dependency
-  - Create PipelineMetrics instrumentation
-  - Export metrics to Prometheus format
-  - Create sample Grafana dashboard JSON
-
-**Day 10: Documentation & CI/CD**
-- [ ] Task 1.8: Complete documentation (4h)
-  - Add usage examples
-  - Document API
-  - Create troubleshooting guide
-
-- [ ] Task 1.9: Set up CI/CD (4h)
-  - Create GitHub Actions workflow
-  - Configure automated testing
-  - Set up Docker image building
-
-### **Acceptance Criteria**
-- ✅ No println statements in code
-- ✅ All commands validated with Accord
-- ✅ Error recovery with retry logic implemented
-- ✅ Timeout handling for long operations
-- ✅ 80%+ test coverage
-- ✅ Integration tests passing
-- ✅ Metrics exported to Prometheus
-- ✅ CI/CD pipeline operational
-- ✅ Documentation complete with examples
-
-### **Learning Objectives**
-- Master Pekko TestKit and testing patterns
-- Understand error recovery strategies
-- Learn metrics instrumentation
-- Practice CI/CD setup
-
-### **Estimated Effort**
-- Total: 56 hours (2 weeks × 20 hours/week = 40 hours core + 16 hours buffer)
+### **Sprint Retrospective**
+- **What went well:** Successfully integrated Kamon metrics, Pekko Management working, cluster bootstrap configured
+- **What to improve:** Need comprehensive testing, need to complete data sources and sinks
+- **Learnings:** Kamon integration, Pekko Management setup, cluster configuration patterns
+- **Next focus:** Implement transformation engine and sinks for data processing
 
 ---
 
@@ -266,84 +189,380 @@
 
 ---
 
-## 🏃 **Sprint 3: Transformations & Sinks** (📋 Planned)
+## 🏃 **Sprint 3: Transformations & Sinks** (🔄 Current)
 
 **Duration:** 2 weeks
-**Focus:** Implement data transformation and output
+**Focus:** Build transformation engine and sink implementations for data processing pipeline
 
 ### **Sprint Goals**
-1. Create Transform abstraction
-2. Implement core transforms (Filter, Map, Aggregate)
-3. Implement sinks (File, Kafka, Cassandra, Elasticsearch)
-4. Enable transform chaining
+1. ✅ Design and implement Transform abstraction with Pekko Streams
+2. ✅ Create core transformation operators (Filter, Map, FlatMap, Aggregate)
+3. ✅ Implement production-ready sinks (Kafka, Cassandra, Elasticsearch, File)
+4. ✅ Enable transform chaining with proper backpressure
+5. ✅ Implement batching, retry, and error handling for sinks
 
-### **Tasks**
+### **Architecture Overview**
 
-#### Week 5: Transformations
+```
+DataRecord → [Transform Chain] → [Sink with Batching]
+                ↓                        ↓
+          Pekko Streams Flow        Pekko Streams Sink
+          (map, filter, etc)        (grouped, retry logic)
+```
 
-**Day 1-2: Transform Abstraction**
-- [ ] Task 3.1: Create Transform trait (6h)
-  - Define transform interface
-  - Support stateless and stateful transforms
-  - Error handling
+**Key Design Principles:**
+- Use Pekko Streams for backpressure and flow control
+- Transforms are stateless/stateful Flow[DataRecord, DataRecord, NotUsed]
+- Sinks batch records and handle failures gracefully
+- All components integrate with PipelineAggregate events
 
-- [ ] Task 3.2: Implement basic transforms (8h)
-  - FilterTransform
-  - MapTransform
-  - FlatMapTransform
+---
 
-**Day 3-4: Advanced Transforms**
-- [ ] Task 3.3: Implement stateful transforms (10h)
-  - GroupByTransform
-  - WindowTransform
-  - AggregateTransform
+### **Week 1: Transformation Engine**
 
-- [ ] Task 3.4: Transform composition (6h)
-  - Chain transforms together
-  - Compose transforms
-  - Test complex pipelines
+#### **Day 1: Transform Foundation** (6-8 hours)
 
-**Day 5: Schema Validation**
-- [ ] Task 3.5: Implement schema validation (6h)
-  - JSON schema validation
-  - Schema evolution handling
-  - Validation error handling
+**Task 3.1: Create Transform Domain Model**
+- [ ] Create `transformation/domain/Transform.scala`
+  - Define `Transform` trait with `transform: Flow[DataRecord, DataRecord, NotUsed]`
+  - Define `TransformConfig` sealed trait hierarchy
+  - Support stateless vs stateful transforms
+  - Add error handling strategy (skip, fail, dead-letter)
 
-#### Week 6: Sinks
+- [ ] Create `transformation/domain/TransformType.scala`
+  ```scala
+  sealed trait TransformConfig
+  case class FilterConfig(expression: String) extends TransformConfig
+  case class MapConfig(mapping: Map[String, String]) extends TransformConfig
+  case class FlatMapConfig(splitField: String) extends TransformConfig
+  case class AggregateConfig(
+    groupByFields: Seq[String],
+    aggregations: Map[String, AggregationType],
+    windowSize: FiniteDuration
+  ) extends TransformConfig
+  ```
 
-**Day 6-7: Core Sinks**
-- [ ] Task 3.6: Implement sinks (12h)
-  - FileSink (CSV, JSON)
-  - KafkaSink (producer)
-  - CassandraSink
-  - ElasticsearchSink
+**Task 3.2: Implement Transform Factory**
+- [ ] Create `transformation/TransformFactory.scala`
+  - Pattern match on `TransformConfig` to create concrete transforms
+  - Handle transform instantiation errors
+  - Add transform validation logic
 
-**Day 8: Sink Features**
-- [ ] Task 3.7: Implement sink features (6h)
-  - Batching logic
-  - Retry on failure
-  - Idempotency
+#### **Day 2: Stateless Transforms** (8 hours)
 
-**Day 9: Integration**
-- [ ] Task 3.8: End-to-end pipeline test (6h)
-  - Source → Transform → Sink
-  - Multiple transform chains
-  - Performance testing
+**Task 3.3: Implement FilterTransform**
+- [ ] Create `transformation/filters/FilterTransform.scala`
+  - Support JSONPath expressions (e.g., `$.age > 18`)
+  - Support simple field comparisons (e.g., `status == "active"`)
+  - Use `circe` for JSON path evaluation
+  - Handle missing fields gracefully
+  - Example: Filter records where `$.user.age >= 21`
 
-**Day 10: Documentation**
-- [ ] Task 3.9: Documentation (4h)
+**Task 3.4: Implement MapTransform**
+- [ ] Create `transformation/mapping/MapTransform.scala`
+  - Support field renaming: `{"oldField": "newField"}`
+  - Support field extraction: `{"user.name": "userName"}`
+  - Support field deletion: `{"fieldToRemove": null}`
+  - Support constant injection: `{"newField": "constantValue"}`
+  - Preserve unmapped fields
+  - Example: Transform `{user: {name: "John"}}` → `{userName: "John"}`
+
+**Task 3.5: Implement FlatMapTransform**
+- [ ] Create `transformation/mapping/FlatMapTransform.scala`
+  - Split array fields into separate records
+  - Example: `{id: 1, items: [a, b]}` → 2 records: `{id: 1, item: a}`, `{id: 1, item: b}`
+  - Preserve parent record context
+  - Handle empty arrays
+
+#### **Day 3: Stateful Transforms - Part 1** (8 hours)
+
+**Task 3.6: Implement AggregateTransform Foundation**
+- [ ] Create `transformation/aggregation/AggregateTransform.scala`
+  - Design state management for grouping
+  - Implement window-based aggregation (tumbling windows)
+  - Support aggregation types:
+    - `Count`: Count records in group
+    - `Sum`: Sum numeric field
+    - `Average`: Calculate average
+    - `Min/Max`: Find min/max values
+    - `Collect`: Collect values into array
+
+**Task 3.7: Implement GroupBy Logic**
+- [ ] Create `transformation/aggregation/GroupByState.scala`
+  - Group records by specified fields
+  - Maintain state per group
+  - Emit aggregated results when window closes
+  - Handle late arrivals
+
+#### **Day 4: Stateful Transforms - Part 2** (8 hours)
+
+**Task 3.8: Complete Window Aggregation**
+- [ ] Implement window operators in `AggregateTransform`
+  - Tumbling window (fixed size, non-overlapping)
+  - Sliding window (overlapping windows)
+  - Session window (timeout-based)
+  - Use `Flow.groupedWithin()` for time-based batching
+
+**Task 3.9: Implement EnrichTransform (Bonus)**
+- [ ] Create `transformation/enrichment/EnrichTransform.scala`
+  - Lookup enrichment data from external source
+  - Cache lookup results
+  - Handle lookup failures
+  - Example: Enrich with user profile data from Redis/Cassandra
+
+#### **Day 5: Transform Composition & Testing** (8 hours)
+
+**Task 3.10: Implement Transform Chaining**
+- [ ] Create `transformation/TransformChain.scala`
+  - Chain multiple transforms together
+  - `Flow.via(transform1).via(transform2).via(transform3)`
+  - Preserve backpressure across chain
+  - Handle errors in pipeline
+
+**Task 3.11: Write Transform Tests**
+- [ ] Create `transformation/TransformSpec.scala`
+  - Test FilterTransform with various expressions
+  - Test MapTransform field operations
+  - Test FlatMapTransform array splitting
+  - Test AggregateTransform windowing
+  - Test transform chaining
+  - Test error handling (malformed data)
+  - Use `TestSource` and `TestSink` from Pekko Streams TestKit
+
+---
+
+### **Week 2: Sinks Implementation**
+
+#### **Day 6: Sink Foundation** (8 hours)
+
+**Task 3.12: Create Sink Domain Model**
+- [ ] Create `sink/domain/Sink.scala`
+  ```scala
+  trait DataSink {
+    def sink: Sink[DataRecord, Future[Done]]
+    def healthCheck: Future[Boolean]
+    def close(): Future[Done]
+  }
+
+  sealed trait SinkConfig
+  case class KafkaSinkConfig(
+    topic: String,
+    bootstrapServers: String,
+    keyField: Option[String],
+    properties: Map[String, String]
+  ) extends SinkConfig
+
+  case class CassandraSinkConfig(
+    keyspace: String,
+    table: String,
+    consistencyLevel: String,
+    batchSize: Int
+  ) extends SinkConfig
+
+  case class FileSinkConfig(
+    path: String,
+    format: FileFormat, // CSV, JSON, Parquet
+    compression: Option[String], // gzip, snappy
+    rotationSize: Option[Long]
+  ) extends SinkConfig
+
+  case class ElasticsearchSinkConfig(
+    index: String,
+    docType: String,
+    hosts: Seq[String],
+    bulkSize: Int
+  ) extends SinkConfig
+  ```
+
+**Task 3.13: Implement Sink Factory**
+- [ ] Create `sink/SinkFactory.scala`
+  - Create sinks based on configuration
+  - Validate sink configurations
+  - Initialize sink connections
+  - Handle initialization failures
+
+#### **Day 7: Kafka Sink** (8 hours)
+
+**Task 3.14: Implement KafkaSink**
+- [ ] Create `sink/kafka/KafkaSink.scala`
+  - Use Pekko Connectors Kafka `Producer.plainSink`
+  - Convert `DataRecord` to `ProducerRecord[String, String]`
+  - Support custom key extraction
+  - Handle serialization errors
+  - Implement at-least-once semantics
+  - Add metrics (records produced, errors)
+
+**Task 3.15: Implement Batching & Retry**
+- [ ] Add batching logic with `Flow.grouped(batchSize)`
+- [ ] Add retry with exponential backoff
+  ```scala
+  RestartSink.withBackoff(
+    minBackoff = 1.second,
+    maxBackoff = 30.seconds,
+    randomFactor = 0.2
+  )
+  ```
+- [ ] Handle poison pill messages
+
+**Task 3.16: Write KafkaSink Tests**
+- [ ] Use Testcontainers for Kafka
+- [ ] Test successful writes
+- [ ] Test retry on failure
+- [ ] Test backpressure handling
+
+#### **Day 8: Cassandra & File Sinks** (8 hours)
+
+**Task 3.17: Implement CassandraSink**
+- [ ] Create `sink/cassandra/CassandraSink.scala`
+  - Use Pekko Connectors Cassandra
+  - Convert `DataRecord` to CQL prepared statement
+  - Support flexible schema mapping
+  - Implement batching (batch inserts)
+  - Handle write timeouts
+  - Add consistency level configuration
+
+**Task 3.18: Implement FileSink**
+- [ ] Create `sink/file/FileSink.scala`
+  - Support JSON lines format (JSONL)
+  - Support CSV format with headers
+  - Implement file rotation by size
+  - Use `FileIO.toPath` with proper buffering
+  - Handle disk space errors
+  - Support compression (gzip)
+
+**Task 3.19: Write Cassandra & File Tests**
+- [ ] Cassandra: Use Testcontainers
+- [ ] File: Use temp directories
+- [ ] Test data integrity
+- [ ] Test rotation logic
+
+#### **Day 9: Elasticsearch Sink & Integration** (8 hours)
+
+**Task 3.20: Implement ElasticsearchSink**
+- [ ] Create `sink/elasticsearch/ElasticsearchSink.scala`
+  - Use Elastic4s or Pekko Connectors Elasticsearch
+  - Implement bulk indexing
+  - Convert `DataRecord` to JSON document
+  - Handle bulk errors (partial failures)
+  - Support index patterns (date-based)
+  - Add refresh policy configuration
+
+**Task 3.21: Integration with PipelineAggregate**
+- [ ] Update `PipelineAggregate` to support transform + sink
+- [ ] Emit events when sink writes complete
+- [ ] Track sink metrics (records written, errors)
+- [ ] Handle sink failures (retry, dead letter queue)
+
+**Task 3.22: End-to-End Pipeline Test**
+- [ ] Create full pipeline: Source → Transform → Sink
+- [ ] Test with all sink types
+- [ ] Test error handling
+- [ ] Test backpressure propagation
+- [ ] Performance test with high volume
+
+#### **Day 10: Documentation & Polish** (8 hours)
+
+**Task 3.23: Write Comprehensive Documentation**
+- [ ] Create `docs/TRANSFORMS.md`
+  - Document each transform type with examples
+  - Show JSONPath expression syntax
+  - Show aggregation examples
+  - Show chaining examples
+
+- [ ] Create `docs/SINKS.md`
+  - Document each sink with configuration
+  - Show batching and retry configuration
+  - Provide troubleshooting guide
+  - Performance tuning tips
+
+**Task 3.24: Create Example Pipelines**
+- [ ] Create `examples/pipeline-examples.json`
+  - User event processing pipeline
+  - Log aggregation pipeline
+  - Data enrichment pipeline
+  - Multi-sink fanout pipeline
+
+**Task 3.25: Code Review & Refactoring**
+- [ ] Review all transform implementations
+- [ ] Review all sink implementations
+- [ ] Ensure consistent error handling
+- [ ] Verify test coverage (target 80%+)
+- [ ] Update README with Sprint 3 completion
+
+---
 
 ### **Acceptance Criteria**
-- ✅ Transform abstraction supports stateful/stateless
-- ✅ Core transforms implemented
-- ✅ Transform chaining works
-- ✅ All sinks write correctly
-- ✅ Batching and retry logic
-- ✅ End-to-end pipeline functional
-- ✅ 80%+ test coverage
+
+**Transformations:**
+- ✅ FilterTransform supports JSONPath and simple expressions
+- ✅ MapTransform supports rename, extract, delete, inject
+- ✅ FlatMapTransform splits arrays correctly
+- ✅ AggregateTransform supports windowing and grouping
+- ✅ Transform chaining works with backpressure
+- ✅ Error handling: skip, fail, or dead-letter
+
+**Sinks:**
+- ✅ KafkaSink writes to Kafka with at-least-once semantics
+- ✅ CassandraSink writes with batching and consistency control
+- ✅ FileSink supports JSON/CSV with rotation and compression
+- ✅ ElasticsearchSink bulk indexes with error handling
+- ✅ All sinks implement retry with exponential backoff
+- ✅ All sinks emit metrics (throughput, errors, latency)
+
+**Integration:**
+- ✅ End-to-end pipeline works: Source → Transform → Sink
+- ✅ Backpressure propagates correctly
+- ✅ PipelineAggregate tracks transform/sink events
+- ✅ Test coverage >= 80%
+- ✅ Documentation complete with examples
+- ✅ Performance tested with 10k+ records/sec
+
+---
+
+### **Learning Objectives**
+- Master Pekko Streams Flow composition
+- Understand backpressure and flow control
+- Learn windowing and stateful stream processing
+- Practice Pekko Connectors (Kafka, Cassandra, Elasticsearch)
+- Implement resilient error handling patterns
+- Performance testing and optimization
+
+---
 
 ### **Estimated Effort**
-- Total: 64 hours
+- **Week 1 (Transforms):** 38-40 hours
+- **Week 2 (Sinks):** 40 hours
+- **Total:** 78-80 hours
+- **Buffer:** 16 hours for unexpected issues
+- **Grand Total:** ~96 hours (realistic with deep implementation)
+
+---
+
+### **Technical Decisions**
+
+**Transform Implementation:**
+- Use Pekko Streams `Flow` for all transforms
+- JSONPath expressions via `circe` or `jsonpath` library
+- State management with `statefulMapConcat` for aggregations
+
+**Sink Implementation:**
+- Use Pekko Connectors where available (Kafka, Cassandra)
+- Implement batching with `Flow.grouped()` + `groupedWithin()`
+- Retry with `RestartSink.withBackoff()`
+- Metrics via Kamon counters and histograms
+
+**Error Handling:**
+- Supervision strategy: Resume (skip), Restart (retry), Stop (fail)
+- Dead letter queue for unprocessable records
+- Detailed error logging with context
+
+---
+
+### **Next Steps After Sprint 3**
+1. Implement data sources (Sprint 2 backfill)
+2. Build HTTP API for pipeline management (Sprint 4)
+3. Add CQRS projections for pipeline status (Sprint 5)
+4. Production hardening and deployment (Sprint 6)
 
 ---
 
@@ -593,13 +812,13 @@
 
 | Sprint | Planned Hours | Actual Hours | Story Points | Completion % |
 |--------|--------------|--------------|--------------|--------------|
-| Sprint 0 | 40 | - | - | 100% |
-| Sprint 1 | 56 | TBD | TBD | 0% |
-| Sprint 2 | 54 | TBD | TBD | 0% |
-| Sprint 3 | 64 | TBD | TBD | 0% |
-| Sprint 4 | 58 | TBD | TBD | 0% |
-| Sprint 5 | 64 | TBD | TBD | 0% |
-| Sprint 6 | 64 | TBD | TBD | 0% |
+| Sprint 0 | 40 | 40 | - | 100% |
+| Sprint 1 | 56 | ~30 | - | 100% |
+| Sprint 2 | 54 | - | - | 0% (Deferred) |
+| Sprint 3 | 96 | TBD | - | 0% (Current) |
+| Sprint 4 | 58 | TBD | - | 0% |
+| Sprint 5 | 64 | TBD | - | 0% |
+| Sprint 6 | 64 | TBD | - | 0% |
 
 ### **Definition of Done**
 
