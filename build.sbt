@@ -240,11 +240,18 @@ lazy val dataflowTransforms = (project in file("dataflow-transforms"))
       "io.circe" %% "circe-core" % "0.14.15",
       "io.circe" %% "circe-generic" % "0.14.15",
       "io.circe" %% "circe-parser" % "0.14.15",
+      // JSONPath for filter expressions
+      "io.gatling" %% "jsonpath" % "1.1.0",
       // ==========================================
       // SCHEMA VALIDATION
       // ==========================================
       // JSON Schema validation
       "com.github.java-json-tools" % "json-schema-validator" % "2.2.14",
+      // ==========================================
+      // LOGGING
+      // ==========================================
+      "org.apache.pekko" %% "pekko-slf4j" % pekkoVersion,
+      "ch.qos.logback" % "logback-classic" % logbackVersion,
       // ==========================================
       // TESTING
       // ==========================================
