@@ -36,9 +36,6 @@ object Main {
 
   private val log: Logger = LoggerFactory.getLogger(getClass)
 
-  // Entity type key for pipeline sharding
-  val PipelineTypeKey: EntityTypeKey[Command] = EntityTypeKey("Pipeline")
-
   def main(args: Array[String]): Unit = {
     // Load configuration
     val config: Config = loadConfig(args)
