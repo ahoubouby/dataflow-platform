@@ -44,6 +44,19 @@ object RunningStateHandler {
               Effect.reply(replyTo)(StatusReply.success(BatchResult(batchId, records.size, 0, 0)))
             } else {
               val t0           = System.nanoTime()
+
+              // Print records to console (sink simulation)
+              log.info("=" * 80)
+              log.info(s"PIPELINE OUTPUT (batchId=$batchId)")
+              log.info("=" * 80)
+              records.zipWithIndex.foreach { case (record, idx) =>
+                log.info(s"Record ${idx + 1}:")
+                log.info(s"  ID: ${record.id}")
+                log.info(s"  Data: ${record.data.mkString(", ")}")
+                log.info(s"  Metadata: ${record.metadata.mkString(", ")}")
+              }
+              log.info("=" * 80)
+
               val successCount = records.size
               val failureCount = 0
               val elapsedMs    = (System.nanoTime() - t0) / 1000000L

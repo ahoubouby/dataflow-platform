@@ -5,8 +5,10 @@ import scala.util.{Failure, Success}
 
 import com.dataflow.aggregates.coordinator.CoordinatorAggregate
 import com.dataflow.cluster.PipelineSharding
-import com.dataflow.domain.commands.{Command, CoordinatorCommand}
+import com.dataflow.domain.commands._
+import com.dataflow.domain.models._
 import com.dataflow.metrics.MetricsReporter
+import com.dataflow.sources.Source
 import com.typesafe.config.{Config, ConfigFactory}
 import org.apache.pekko.actor.typed.{ActorRef, ActorSystem}
 import org.apache.pekko.actor.typed.scaladsl.Behaviors
@@ -15,7 +17,9 @@ import org.apache.pekko.cluster.sharding.typed.scaladsl.EntityTypeKey
 import org.apache.pekko.cluster.typed.{Cluster, ClusterSingleton, ClusterSingletonSettings, SingletonActor}
 import org.apache.pekko.management.cluster.bootstrap.ClusterBootstrap
 import org.apache.pekko.management.scaladsl.PekkoManagement
+import org.apache.pekko.pattern.StatusReply
 import org.slf4j.{Logger, LoggerFactory}
+import java.nio.file.{Files, Paths, StandardOpenOption}
 
 /**
  * Main entry point for the DataFlow Platform.
@@ -143,6 +147,170 @@ object Main {
     log.info(s"Metrics endpoint: http://localhost:9095/metrics")
     log.info(s"Kamon status: http://localhost:5266")
     log.info("=" * 80)
+
+    // 9. Run example pipeline (wait a bit for cluster to stabilize)
+    import system.executionContext
+    system.scheduler.scheduleOnce(5.seconds) {
+      runExamplePipeline(system, pipelineShardRegion, coordinatorProxy)
+    }
+  }
+
+  /**
+   * Run an example pipeline to demonstrate the platform.
+   * This creates a dummy file, reads from it, and prints the output.
+   */
+  private def runExamplePipeline(
+    system: ActorSystem[Nothing],
+    pipelineShardRegion: ActorRef[ShardingEnvelope[Command]],
+    coordinatorProxy: ActorRef[CoordinatorCommand]
+  ): Unit = {
+    implicit val sys: ActorSystem[Nothing] = system
+    import system.executionContext
+
+    log.info("=" * 80)
+    log.info("RUNNING EXAMPLE PIPELINE")
+    log.info("=" * 80)
+
+    // 1. Create a dummy file with sample data
+    val dummyFilePath = "/tmp/dataflow-example-input.txt"
+    log.info(s"1. Creating dummy file: $dummyFilePath")
+
+    val sampleData = (1 to 10).map { i =>
+      s"Sample record $i: timestamp=${System.currentTimeMillis()}, value=${i * 10}"
+    }.mkString("\n")
+
+    Files.write(
+      Paths.get(dummyFilePath),
+      sampleData.getBytes,
+      StandardOpenOption.CREATE,
+      StandardOpenOption.TRUNCATE_EXISTING
+    )
+    log.info(s"✓ Created dummy file with 10 records")
+
+    // 2. Register pipeline with coordinator
+    val pipelineId = "example-pipeline-001"
+    val pipelineName = "Example Text File Pipeline"
+
+    log.info(s"2. Registering pipeline with coordinator: $pipelineId")
+    system.systemActorOf(
+      Behaviors.setup[Any] { ctx =>
+        coordinatorProxy ! RegisterPipeline(
+          pipelineId = pipelineId,
+          name = pipelineName,
+          replyTo = ctx.messageAdapter {
+            case StatusReply.Success(state) =>
+              log.info(s"✓ Pipeline registered with coordinator: $pipelineId")
+              "registered"
+            case StatusReply.Error(error) =>
+              log.warn(s"Pipeline registration response: $error (may already exist)")
+              "error"
+          }
+        )
+        Behaviors.receiveMessage { _ => Behaviors.same }
+      },
+      "pipeline-registrar"
+    )
+
+    // 3. Create pipeline configuration
+    log.info(s"3. Creating pipeline configuration")
+
+    val sourceConfig = SourceConfig(
+      sourceType = SourceType.File,
+      connectionString = dummyFilePath,
+      options = Map(
+        "format" -> "text",
+        "encoding" -> "UTF-8"
+      ),
+      batchSize = 5  // Process in batches of 5 records
+    )
+
+    val sinkConfig = SinkConfig(
+      sinkType = SinkType.Console,  // Print to console
+      connectionString = "console",
+      options = Map("format" -> "json")
+    )
+
+    val pipelineConfig = PipelineConfig(
+      name = pipelineName,
+      description = "Example pipeline reading from text file and printing output",
+      sourceConfig = sourceConfig,
+      transformConfigs = List.empty,  // No transformations for now
+      sinkConfig = sinkConfig,
+      maxRetries = 3,
+      timeout = 30.seconds
+    )
+
+    // 4. Send CreatePipeline command
+    log.info(s"4. Sending CreatePipeline command to pipeline aggregator")
+
+    system.systemActorOf(
+      Behaviors.setup[StatusReply[State]] { ctx =>
+        val createCmd = CreatePipeline(
+          pipelineId = pipelineId,
+          name = pipelineName,
+          description = "Example pipeline for demonstration",
+          sourceConfig = sourceConfig,
+          transformConfigs = List.empty,
+          sinkConfig = sinkConfig,
+          replyTo = ctx.self
+        )
+
+        pipelineShardRegion ! ShardingEnvelope(pipelineId, createCmd)
+
+        Behaviors.receiveMessage {
+          case StatusReply.Success(state) =>
+            log.info(s"✓ Pipeline created successfully: $pipelineId")
+            log.info(s"   State: ${state.getClass.getSimpleName}")
+
+            // 5. Start the pipeline
+            log.info(s"5. Starting pipeline: $pipelineId")
+            pipelineShardRegion ! ShardingEnvelope(
+              pipelineId,
+              StartPipeline(pipelineId, ctx.messageAdapter {
+                case StatusReply.Success(runningState) =>
+                  log.info(s"✓ Pipeline started successfully!")
+                  log.info(s"   State: ${runningState.getClass.getSimpleName}")
+
+                  // 6. Create and start file source
+                  log.info(s"6. Creating file source to read data")
+                  ctx.scheduleOnce(2.seconds, ctx.self, StatusReply.success(runningState))
+                  StatusReply.success(runningState)
+
+                case StatusReply.Error(error) =>
+                  log.error(s"✗ Failed to start pipeline: $error")
+                  StatusReply.error(error)
+              })
+            )
+            Behaviors.same
+
+          case StatusReply.Error(error) =>
+            log.error(s"✗ Failed to create pipeline: $error")
+            Behaviors.stopped
+        }
+      },
+      "pipeline-creator"
+    )
+
+    // 7. Start file source after a delay
+    system.scheduler.scheduleOnce(8.seconds) {
+      log.info(s"7. Starting file source to ingest data")
+      try {
+        val source = Source(pipelineId, sourceConfig)(system)
+        source.start(pipelineShardRegion).onComplete {
+          case Success(_) =>
+            log.info(s"✓ File source started successfully")
+            log.info(s"   Reading from: $dummyFilePath")
+            log.info(s"   Pipeline will process records and print to console")
+            log.info("=" * 80)
+
+          case Failure(ex) =>
+            log.error(s"✗ Failed to start file source: ${ex.getMessage}", ex)
+        }
+      } catch {
+        case ex: Exception =>
+          log.error(s"✗ Error creating file source: ${ex.getMessage}", ex)
+      }
+    }
   }
 
   /**
