@@ -1,12 +1,13 @@
 package com.dataflow.transforms
 
+import com.dataflow.transforms.aggregation.AggregateTransform
 import com.dataflow.transforms.domain._
 import com.dataflow.transforms.filters.FilterTransform
-import com.dataflow.transforms.mapping.{MapTransform, FlatMapTransform}
-import com.dataflow.transforms.aggregation.AggregateTransform
+import com.dataflow.transforms.mapping.{FlatMapTransform, MapTransform}
 import com.dataflow.transforms.enrichment.EnrichTransform
 import org.slf4j.LoggerFactory
-import scala.util.{Try, Success, Failure}
+
+import scala.util.{Failure, Success, Try}
 
 /**
  * Factory for creating Transform instances from configuration.
