@@ -7,7 +7,7 @@ import org.apache.pekko.stream.{Attributes, RestartSettings}
 import org.apache.pekko.stream.scaladsl.{Flow, RestartFlow}
 import org.slf4j.LoggerFactory
 
-import scala.concurrent.Future
+import scala.concurrent.{ExecutionContext, Future}
 import scala.concurrent.duration._
 import scala.util.{Failure, Success, Try}
 
@@ -49,7 +49,7 @@ object SinkUtils {
   def retryFlow[In, Out](
     operation: In => Future[Out],
     config: RetryConfig
-  ): Flow[In, Out, NotUsed] = {
+  )(implicit ec: ExecutionContext): Flow[In, Out, NotUsed] = {
 
     val restartSettings = RestartSettings(
       minBackoff = config.initialDelay,
@@ -78,7 +78,7 @@ object SinkUtils {
     write: Seq[DataRecord] => Future[T],
     batchConfig: BatchConfig = BatchConfig.default,
     retryConfig: RetryConfig = RetryConfig.default
-  ): Flow[DataRecord, T, NotUsed] = {
+  )(implicit ec: ExecutionContext): Flow[DataRecord, T, NotUsed] = {
 
     batchingFlow(batchConfig)
       .via(retryFlow(write, retryConfig))
@@ -131,7 +131,7 @@ object SinkUtils {
   def errorHandlingFlow[T](
     operation: T => Future[T],
     onError: Throwable => Unit = ex => logger.error("Operation failed", ex)
-  ): Flow[T, T, NotUsed] = {
+  )(implicit ec: ExecutionContext): Flow[T, T, NotUsed] = {
     Flow[T].mapAsync(1) { input =>
       operation(input).recoverWith {
         case ex =>
