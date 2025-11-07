@@ -1,15 +1,15 @@
 package com.dataflow.sinks.util
 
+import scala.concurrent.{ExecutionContext, Future}
+import scala.concurrent.duration._
+import scala.util.{Failure, Success, Try}
+
 import com.dataflow.domain.models.DataRecord
 import com.dataflow.sinks.domain.{BatchConfig, RetryConfig}
 import org.apache.pekko.NotUsed
 import org.apache.pekko.stream.{Attributes, RestartSettings}
 import org.apache.pekko.stream.scaladsl.{Flow, RestartFlow}
 import org.slf4j.LoggerFactory
-
-import scala.concurrent.{ExecutionContext, Future}
-import scala.concurrent.duration._
-import scala.util.{Failure, Success, Try}
 
 /**
  * Production-ready utilities for sinks.
@@ -48,24 +48,27 @@ object SinkUtils {
    */
   def retryFlow[In, Out](
     operation: In => Future[Out],
-    config: RetryConfig
-  )(implicit ec: ExecutionContext): Flow[In, Out, NotUsed] = {
+    config: RetryConfig,
+  )(implicit ec: ExecutionContext,
+  ): Flow[In, Out, NotUsed] = {
 
     val restartSettings = RestartSettings(
       minBackoff = config.initialDelay,
       maxBackoff = config.maxDelay,
-      randomFactor = 0.2
+      randomFactor = 0.2,
     ).withMaxRestarts(config.maxAttempts, config.initialDelay * 10)
 
-    RestartFlow.onFailuresWithBackoff(restartSettings) { () =>
-      Flow[In].mapAsync(1) { input =>
-        logger.debug(s"Executing operation for input")
-        operation(input).recoverWith {
-          case ex =>
-            logger.warn(s"Operation failed, will retry", ex)
-            Future.failed(ex)
+    RestartFlow.onFailuresWithBackoff(restartSettings) {
+      () =>
+        Flow[In].mapAsync(1) {
+          input =>
+            logger.debug(s"Executing operation for input")
+            operation(input).recoverWith {
+              case ex =>
+                logger.warn(s"Operation failed, will retry", ex)
+                Future.failed(ex)
+            }
         }
-      }
     }
   }
 
@@ -77,12 +80,11 @@ object SinkUtils {
   def batchWriteFlow[T](
     write: Seq[DataRecord] => Future[T],
     batchConfig: BatchConfig = BatchConfig.default,
-    retryConfig: RetryConfig = RetryConfig.default
-  )(implicit ec: ExecutionContext): Flow[DataRecord, T, NotUsed] = {
-
+    retryConfig: RetryConfig = RetryConfig.default,
+  )(implicit ec: ExecutionContext,
+  ): Flow[DataRecord, T, NotUsed] =
     batchingFlow(batchConfig)
       .via(retryFlow(write, retryConfig))
-  }
 
   /**
    * Validate record before writing.
@@ -108,18 +110,19 @@ object SinkUtils {
     var recordCount = 0L
     var lastLogTime = System.currentTimeMillis()
 
-    Flow[DataRecord].map { record =>
-      recordCount += 1
+    Flow[DataRecord].map {
+      record =>
+        recordCount += 1
 
-      val now = System.currentTimeMillis()
-      if (now - lastLogTime > 10000) { // Log every 10 seconds
-        val rate = recordCount * 1000.0 / (now - lastLogTime)
-        logger.info(s"[$sinkName] Processed $recordCount records (${rate.formatted("%.2f")} records/sec)")
-        recordCount = 0
-        lastLogTime = now
-      }
+        val now = System.currentTimeMillis()
+        if (now - lastLogTime > 10000) { // Log every 10 seconds
+          val rate = recordCount * 1000.0 / (now - lastLogTime)
+          logger.info(s"[$sinkName] Processed $recordCount records (${rate.formatted("%.2f")} records/sec)")
+          recordCount = 0
+          lastLogTime = now
+        }
 
-      record
+        record
     }
   }
 
@@ -130,14 +133,16 @@ object SinkUtils {
    */
   def errorHandlingFlow[T](
     operation: T => Future[T],
-    onError: Throwable => Unit = ex => logger.error("Operation failed", ex)
-  )(implicit ec: ExecutionContext): Flow[T, T, NotUsed] = {
-    Flow[T].mapAsync(1) { input =>
-      operation(input).recoverWith {
-        case ex =>
-          onError(ex)
-          Future.successful(input) // Continue with original input
-      }
+    onError: Throwable => Unit = ex => logger.error("Operation failed", ex),
+  )(implicit ec: ExecutionContext,
+  ): Flow[T, T, NotUsed] = {
+    Flow[T].mapAsync(1) {
+      input =>
+        operation(input).recoverWith {
+          case ex =>
+            onError(ex)
+            Future.successful(input) // Continue with original input
+        }
     }
   }
 }
