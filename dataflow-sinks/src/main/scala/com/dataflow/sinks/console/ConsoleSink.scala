@@ -1,12 +1,18 @@
 package com.dataflow.sinks.console
 
-import com.dataflow.sinks.domain.{DataSink, SinkMetrics}
-import org.slf4j.LoggerFactory
-
 import java.io.PrintStream
+import java.time.format.DateTimeFormatter
 import java.util.concurrent.atomic.AtomicReference
-import scala.concurrent.ExecutionContext
 
+import scala.concurrent.{ExecutionContext, Future}
+
+import cats.syntax.either._
+import com.dataflow.domain.models.DataRecord
+import com.dataflow.sinks.domain._
+import com.dataflow.sinks.domain.exceptions._
+import org.apache.pekko.Done
+import org.apache.pekko.stream.scaladsl.{Flow, Sink}
+import org.slf4j.LoggerFactory
 // ============================================================================
 // Console Sink Implementation
 // ============================================================================
@@ -103,7 +109,7 @@ class ConsoleSink(
   // Private Methods
   // ============================================================================
 
-  private def processRecord(record: DataRecord): Either[ConsoleSinkError, String] =
+  private def processRecord(record: DataRecord): Either[SinkError, String] =
     formatter.format(record, config, colorsEnabled)
 
   private def writeToConsole(formatted: String): Unit = {
@@ -115,14 +121,14 @@ class ConsoleSink(
       updateMetrics(_.incrementWritten())
     }.leftMap {
       ex =>
-        val error = ConsoleSinkError.OutputError(ex)
+        val error = OutputError(ex)
         handleError(error)
         error
     }
     ()
   }
 
-  private def handleError(error: ConsoleSinkError): Unit = {
+  private def handleError(error: SinkError): Unit = {
     errorCountRef.updateAndGet(_ + 1)
     updateMetrics(_.incrementFailed())
     logger.error(s"ConsoleSink error: ${error.message}")
@@ -135,7 +141,7 @@ class ConsoleSink(
 
   private def printSummary(): Unit = {
     val metrics   = metricsRef.get()
-    val uptime    = metrics.uptimeMs
+    val uptime    = metrics.startTime.getOrElse(0)
     val uptimeSec = uptime / 1000.0
 
     import AnsiColors._
@@ -156,12 +162,12 @@ class ConsoleSink(
           colorsEnabled,
         )}
          |${colored("Success Rate:", Yellow, colorsEnabled)}    ${colored(
-          f"${metrics.successRate * 100}%.2f%%",
+          f"${metrics.recordsWritten * 100}%.2f%%",
           BrightWhite,
           colorsEnabled,
         )}
          |${colored("Throughput:", Cyan, colorsEnabled)}       ${colored(
-          f"${metrics.throughput}%.2f",
+          f"${metrics.recordsWritten}%.2f",
           BrightWhite,
           colorsEnabled,
         )} records/sec
@@ -184,8 +190,8 @@ class ConsoleSink(
          |${"=" * 60}
          |Records Written: ${metrics.recordsWritten}
          |Records Failed:  ${metrics.recordsFailed}
-         |Success Rate:    ${f"${metrics.successRate * 100}%.2f%%"}
-         |Throughput:       ${f"${metrics.throughput}%.2f"} records/sec
+         |Success Rate:    ${f"${metrics.recordsWritten * 100}%.2f%%"}
+         |Throughput:       ${f"${metrics.batchesWritten}%.2f"} records/sec
          |Uptime:          ${f"$uptimeSec%.2f"} seconds
          |Format:           ${config.format}
          |${"=" * 60}
@@ -197,7 +203,6 @@ class ConsoleSink(
   }
 }
 
-
 object ConsoleSink {
 
   /**
@@ -208,19 +213,19 @@ object ConsoleSink {
    * @return Either an error or a configured ConsoleSink
    */
   def create(
-              config: ConsoleSinkConfig
-            )(implicit ec: ExecutionContext): Either[ConsoleSinkError, ConsoleSink] = {
+    config: ConsoleSinkConfig,
+  )(implicit ec: ExecutionContext,
+  ): Either[SinkError, ConsoleSink] = {
     Either.catchNonFatal {
       new ConsoleSink(config)
-    }.leftMap(ex => ConsoleSinkError.ConfigurationError(ex.getMessage))
+    }.leftMap(ex => ConfigurationError(ex.getMessage))
   }
 
   /**
    * Create a ConsoleSink with default configuration.
    */
-  def default(implicit ec: ExecutionContext): ConsoleSink = {
+  def default(implicit ec: ExecutionContext): ConsoleSink =
     new ConsoleSink(ConsoleSinkConfig.default)
-  }
 
   /**
    * Builder for fluent configuration.
@@ -228,37 +233,46 @@ object ConsoleSink {
   def builder(): ConsoleSinkBuilder = new ConsoleSinkBuilder()
 
   class ConsoleSinkBuilder {
-    private var format: OutputFormat = OutputFormat.PrettyJSON
-    private var colorScheme: ColorScheme = ColorScheme.Auto
-    private var target: OutputTarget = OutputTarget.StdOut
-    private var showTimestamp: Boolean = true
-    private var showMetadata: Boolean = true
-    private var maxFieldWidth: Int = 80
-    private var bufferSize: Int = 100
-    private var flushInterval: Int = 10
-    private var printSummary: Boolean = true
+    private var format:          OutputFormat              = OutputFormat.PrettyJSON
+    private var colorScheme:     ColorScheme               = ColorScheme.Auto
+    private var target:          OutputTarget              = OutputTarget.StdOut
+    private var showTimestamp:   Boolean                   = true
+    private var showMetadata:    Boolean                   = true
+    private var maxFieldWidth:   Int                       = 80
+    private var bufferSize:      Int                       = 100
+    private var flushInterval:   Int                       = 10
+    private var printSummary:    Boolean                   = true
     private var timestampFormat: Option[DateTimeFormatter] = None
 
-    def withFormat(f: OutputFormat): ConsoleSinkBuilder = { format = f; this }
-    def withColorScheme(cs: ColorScheme): ConsoleSinkBuilder = { colorScheme = cs; this }
-    def withTarget(t: OutputTarget): ConsoleSinkBuilder = { target = t; this }
-    def withTimestamp(show: Boolean): ConsoleSinkBuilder = { showTimestamp = show; this }
-    def withMetadata(show: Boolean): ConsoleSinkBuilder = { showMetadata = show; this }
-    def withMaxFieldWidth(width: Int): ConsoleSinkBuilder = { maxFieldWidth = width; this }
-    def withBufferSize(size: Int): ConsoleSinkBuilder = { bufferSize = size; this }
-    def withFlushInterval(interval: Int): ConsoleSinkBuilder = { flushInterval = interval; this }
-    def withSummary(show: Boolean): ConsoleSinkBuilder = { printSummary = show; this }
+    def withFormat(f: OutputFormat):                 ConsoleSinkBuilder = { format = f; this }
+    def withColorScheme(cs: ColorScheme):            ConsoleSinkBuilder = { colorScheme = cs; this }
+    def withTarget(t: OutputTarget):                 ConsoleSinkBuilder = { target = t; this }
+    def withTimestamp(show: Boolean):                ConsoleSinkBuilder = { showTimestamp = show; this }
+    def withMetadata(show: Boolean):                 ConsoleSinkBuilder = { showMetadata = show; this }
+    def withMaxFieldWidth(width: Int):               ConsoleSinkBuilder = { maxFieldWidth = width; this }
+    def withBufferSize(size: Int):                   ConsoleSinkBuilder = { bufferSize = size; this }
+    def withFlushInterval(interval: Int):            ConsoleSinkBuilder = { flushInterval = interval; this }
+    def withSummary(show: Boolean):                  ConsoleSinkBuilder = { printSummary = show; this }
+
     def withTimestampFormat(fmt: DateTimeFormatter): ConsoleSinkBuilder = {
       timestampFormat = Some(fmt); this
     }
 
-    def build()(implicit ec: ExecutionContext): Either[ConsoleSinkError, ConsoleSink] = {
+    def build()(implicit ec: ExecutionContext): Either[SinkError, ConsoleSink] = {
       for {
         config <- ConsoleSinkConfig.create(
-          format, colorScheme, target, showTimestamp, showMetadata,
-          maxFieldWidth, bufferSize, flushInterval, printSummary, timestampFormat
-        )
-        sink <- ConsoleSink.create(config)
+                    format,
+                    colorScheme,
+                    target,
+                    showTimestamp,
+                    showMetadata,
+                    maxFieldWidth,
+                    bufferSize,
+                    flushInterval,
+                    printSummary,
+                    timestampFormat,
+                  )
+        sink   <- ConsoleSink.create(config)
       } yield sink
     }
   }
