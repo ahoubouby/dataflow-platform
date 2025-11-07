@@ -1,7 +1,8 @@
 package com.dataflow.transforms.domain
 
-import com.dataflow.serialization.CborSerializable
 import scala.concurrent.duration.FiniteDuration
+
+import com.dataflow.serialization.CborSerializable
 
 /**
  * Sealed trait hierarchy for transform configurations.
@@ -28,8 +29,8 @@ sealed trait TransformationConfig extends CborSerializable {
  * @param expression The filter expression (JSONPath or simple comparison)
  */
 final case class FilterConfig(
-  expression: String
-) extends TransformationConfig {
+  expression: String,
+  errorErrorHandlingStrategyStrat: ErrorHandlingStrategy = ErrorHandlingStrategy.Skip) extends TransformationConfig {
   override def transformType: TransformType = TransformType.Filter
 }
 
@@ -47,8 +48,7 @@ final case class FilterConfig(
  */
 final case class MapConfig(
   mappings: Map[String, String],
-  preserveUnmapped: Boolean = true
-) extends TransformationConfig {
+  preserveUnmapped: Boolean = true) extends TransformationConfig {
   override def transformType: TransformType = TransformType.Map
 }
 
@@ -66,8 +66,7 @@ final case class MapConfig(
 final case class FlatMapConfig(
   splitField: String,
   targetField: Option[String] = None,
-  preserveParent: Boolean = true
-) extends TransformationConfig {
+  preserveParent: Boolean = true) extends TransformationConfig {
   override def transformType: TransformType = TransformType.FlatMap
 }
 
@@ -91,8 +90,7 @@ final case class FlatMapConfig(
 final case class AggregateConfig(
   groupByFields: Seq[String],
   aggregations: Map[String, AggregationType],
-  windowSize: FiniteDuration
-) extends TransformationConfig {
+  windowSize: FiniteDuration) extends TransformationConfig {
   override def transformType: TransformType = TransformType.Aggregate
 }
 
@@ -102,6 +100,7 @@ final case class AggregateConfig(
 sealed trait AggregationType extends CborSerializable
 
 object AggregationType {
+
   /** Count number of records in group */
   case object Count extends AggregationType
 
@@ -146,8 +145,7 @@ final case class EnrichConfig(
   lookupSource: LookupSource,
   targetFields: Seq[String],
   cacheEnabled: Boolean = true,
-  cacheTtl: Option[FiniteDuration] = None
-) extends TransformationConfig {
+  cacheTtl: Option[FiniteDuration] = None) extends TransformationConfig {
   override def transformType: TransformType = TransformType.Enrich
 }
 
@@ -157,22 +155,21 @@ final case class EnrichConfig(
 sealed trait LookupSource extends CborSerializable
 
 object LookupSource {
+
   /** Lookup from Redis cache */
   final case class Redis(
     host: String,
     port: Int,
-    keyPattern: String // e.g., "user:${userId}"
+    keyPattern: String, // e.g., "user:${userId}"
   ) extends LookupSource
 
   /** Lookup from Cassandra table */
   final case class Cassandra(
     keyspace: String,
     table: String,
-    keyColumn: String
-  ) extends LookupSource
+    keyColumn: String) extends LookupSource
 
   /** Lookup from in-memory map (for testing) */
   final case class InMemory(
-    data: Map[String, Map[String, String]]
-  ) extends LookupSource
+    data: Map[String, Map[String, String]]) extends LookupSource
 }
