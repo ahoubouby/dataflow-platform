@@ -187,6 +187,7 @@ lazy val root = (project in file("."))
     dataflowTransforms,
     dataflowApi,
     dataflowProjections,
+    dataflowExamples,
   )
   .settings(
     name := "dataflow-platform",
@@ -329,6 +330,25 @@ lazy val dataflowProjections = (project in file("dataflow-projections"))
           "org.apache.pekko" %% "pekko-projection-testkit"       % pekkoProjectionVersion % Test,
           "com.dimafeng"     %% "testcontainers-scala-scalatest" % testContainersVersion  % Test,
         ),
+  )
+
+// ============================================
+// EXAMPLES MODULE
+// ============================================
+lazy val dataflowExamples = (project in file("dataflow-examples"))
+  .dependsOn(
+    dataflowCore % "compile->compile",
+    dataflowSources % "compile->compile",
+    dataflowSinks % "compile->compile",
+    dataflowTransforms % "compile->compile",
+  )
+  .settings(commonSettings)
+  .settings(
+    name := "dataflow-examples",
+    libraryDependencies ++=
+      commonDependencies ++
+        jsonDependencies,
+    publish / skip := true,
   )
 
 // ============================================
