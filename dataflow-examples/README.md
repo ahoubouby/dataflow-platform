@@ -14,9 +14,9 @@ The examples showcase production-ready patterns for building streaming data pipe
 
 ## Examples
 
-### 1. FileToConsoleApp
+### 1. FileToConsoleApp - Console Output Patterns
 
-A comprehensive integration application demonstrating three complete pipelines:
+A comprehensive integration application demonstrating three complete pipelines with console sinks:
 
 #### Pipeline 1: CSV Source → Filter → Console
 - Reads user activity data from CSV file
@@ -35,6 +35,78 @@ A comprehensive integration application demonstrating three complete pipelines:
   - Sum, average, min, max of prices
 - Outputs results in table format
 
+**Run it:**
+```bash
+sbt "dataflow-examples/runMain com.dataflow.examples.FileToConsoleApp"
+```
+
+### 2. FileToFileApp - File-based ETL Pipelines
+
+Demonstrates file-to-file data transformation with multiple output formats:
+
+#### Pipeline 1: CSV → Filter → Transform → JSONL
+- Filters electronics transactions from CSV
+- Enriches with computed fields
+- Exports to JSONL format with file rotation
+
+#### Pipeline 2: JSON → Aggregate → CSV
+- Reads product catalog
+- Aggregates by category (count, avg, sum, min, max)
+- Exports analytics to CSV
+
+#### Pipeline 3: CSV → Multi-stage Transform → Compressed JSONL
+- Filters completed high-value transactions
+- Multi-stage transformation pipeline
+- Outputs with GZIP compression
+
+**Run it:**
+```bash
+sbt "dataflow-examples/runMain com.dataflow.examples.FileToFileApp"
+```
+
+**Output Files:** `dataflow-examples/output/`
+- `electronics_transactions.jsonl` - Filtered electronics data
+- `category_analytics.csv` - Product analytics
+- `high_value_completed.jsonl.gz` - Compressed archive
+
+### 3. AdvancedPipelineApp - Sophisticated Streaming Patterns
+
+Advanced examples demonstrating production-ready patterns:
+
+#### Pipeline 1: Sales Analytics Dashboard (Fan-out Pattern)
+- Broadcasts sales data to multiple sinks simultaneously
+- Console sink for real-time monitoring
+- File sink for archiving
+- Store-level aggregations
+- Parallel writes with backpressure
+
+#### Pipeline 2: Data Quality Assurance
+- Multi-stage validation (quantity, price checks)
+- Quality score enrichment
+- Separate routing for valid/invalid data
+- Quality metrics reporting
+
+#### Pipeline 3: Multi-Format Export
+- Single source (store data)
+- Simultaneous export to 3 formats:
+  - JSONL file
+  - CSV file
+  - Console preview
+- Format-specific transformations
+- Comprehensive metrics collection
+
+**Run it:**
+```bash
+sbt "dataflow-examples/runMain com.dataflow.examples.AdvancedPipelineApp"
+```
+
+**Advanced Patterns Demonstrated:**
+- Graph DSL for complex flows
+- Broadcast (fan-out) to multiple sinks
+- Parallel processing
+- Resource pooling
+- Comprehensive error handling
+
 ## Running the Examples
 
 ### Prerequisites
@@ -43,18 +115,22 @@ A comprehensive integration application demonstrating three complete pipelines:
 - SBT 1.9+
 - JDK 11 or higher
 
-### Run the Integration Application
+### Quick Start
+
+All examples automatically generate sample data files. Simply run any example:
 
 ```bash
-# From the project root
+# Run any of the three examples
 sbt "dataflow-examples/runMain com.dataflow.examples.FileToConsoleApp"
+sbt "dataflow-examples/runMain com.dataflow.examples.FileToFileApp"
+sbt "dataflow-examples/runMain com.dataflow.examples.AdvancedPipelineApp"
 ```
 
-The application will:
-1. Create sample CSV and JSON data files in `dataflow-examples/data/`
-2. Run all three pipelines sequentially
-3. Display results to console with rich formatting
-4. Print metrics and statistics at the end
+Each application will:
+1. Create sample data files in `dataflow-examples/data/`
+2. Run all its pipelines sequentially
+3. Display results with rich formatting
+4. Print comprehensive metrics
 
 ## Sample Data
 
