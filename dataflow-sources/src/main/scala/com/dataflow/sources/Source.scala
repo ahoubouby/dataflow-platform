@@ -1,6 +1,7 @@
 package com.dataflow.sources
 
 import scala.concurrent.Future
+
 import com.dataflow.domain.commands.Command
 import com.dataflow.domain.models.{DataRecord, SourceConfig, SourceType}
 import com.dataflow.sources.api.RestApiSource
@@ -203,7 +204,7 @@ private class TestSourceAdapter(
   override def stream(): PekkoSource[DataRecord, NotUsed] =
     // TestSource is actor-based, so we'd need to adapt it
     // For now, return empty source
-    PekkoSource.empty[DataRecord]// .mapMaterializedValue(_ => Future.successful(Done))
+    PekkoSource.empty[DataRecord] // .mapMaterializedValue(_ => Future.successful(Done))
 
   override def start(pipelineShardRegion: ActorRef[ShardingEnvelope[Command]]): Future[Done] =
     // Spawn TestSource actor
