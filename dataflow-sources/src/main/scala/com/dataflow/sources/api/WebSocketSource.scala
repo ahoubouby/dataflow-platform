@@ -2,13 +2,15 @@ package com.dataflow.sources.api
 
 import java.time.Instant
 import java.util.UUID
+
 import scala.concurrent.{ExecutionContext, Future}
 import scala.concurrent.duration._
 import scala.util.{Failure, Success, Try}
+
 import com.dataflow.domain.commands.{Command, IngestBatch}
 import com.dataflow.domain.models.{DataRecord, SourceConfig}
-import com.dataflow.sources.models.SourceState
 import com.dataflow.sources.{Source, SourceMetricsReporter}
+import com.dataflow.sources.models.SourceState
 import org.apache.pekko.{Done, NotUsed}
 import org.apache.pekko.actor.typed.{ActorRef, ActorSystem}
 import org.apache.pekko.cluster.sharding.typed.ShardingEnvelope
@@ -92,9 +94,9 @@ class WebSocketSource(
     config.options.getOrElse("reconnect-max-restarts", "-1").toInt
 
   // State
-  @volatile private var recordCount:   Long                                             = 0
-  @volatile private var isRunning:     Boolean                                          = false
-  @volatile private var killSwitch:    Option[org.apache.pekko.stream.UniqueKillSwitch] = None
+  @volatile private var recordCount: Long                                             = 0
+  @volatile private var isRunning:   Boolean                                          = false
+  @volatile private var killSwitch:  Option[org.apache.pekko.stream.UniqueKillSwitch] = None
 
   log.info(
     "Initialized WebSocketSource id={} url={} messageFormat={} batchSize={}",
@@ -107,12 +109,8 @@ class WebSocketSource(
   /**
    * Create streaming source from WebSocket.
    */
-  override def stream(): PekkoSource[DataRecord, Future[Done]] = {
-    val base: PekkoSource[DataRecord, NotUsed] =
-      buildWebSocketStream()
-
-    base.mapMaterializedValue(_ => Future.successful(Done))
-  }
+  override def stream(): PekkoSource[DataRecord, NotUsed] =
+    buildWebSocketStream()
 
   /**
    * Build WebSocket stream with automatic reconnection.
@@ -121,7 +119,7 @@ class WebSocketSource(
     val restartSettings = RestartSettings(
       minBackoff = reconnectMinBackoff,
       maxBackoff = reconnectMaxBackoff,
-      randomFactor = 0.2
+      randomFactor = 0.2,
       // maxRestarts = reconnectMaxRestarts,
     )
 
@@ -147,7 +145,7 @@ class WebSocketSource(
 
         // Combine heartbeat and actual messages
         val messageSource = PekkoSource
-          .single(TextMessage.Strict(""))  // Initial connection message
+          .single(TextMessage.Strict("")) // Initial connection message
           .concat(heartbeatSource)
 
         messageSource
@@ -169,14 +167,14 @@ class WebSocketSource(
               }
           }
           .collect {
-            case TextMessage.Strict(text) => text
+            case TextMessage.Strict(text)     => text
             case TextMessage.Streamed(stream) =>
               // For streamed messages, we need to materialize the stream
               // This is a simplification; in production, consider backpressure
-              ""  // Skip streamed messages for simplicity
+              "" // Skip streamed messages for simplicity
           }
           .filter(_.nonEmpty)
-          .filter(_ != "pong")  // Filter out pong responses
+          .filter(_ != "pong") // Filter out pong responses
           .map(parseMessage)
           .collect {
             case Some(record) => record
@@ -189,7 +187,7 @@ class WebSocketSource(
    * Create WebSocket flow with authentication.
    */
   private def createWebSocketFlow(): Flow[Message, Message, Future[WebSocketUpgradeResponse]] = {
-    val uri = buildWebSocketUri()
+    val uri     = buildWebSocketUri()
     val headers = buildWebSocketHeaders()
 
     Http().webSocketClientFlow(
@@ -280,12 +278,12 @@ class WebSocketSource(
         id = id,
         data = data - "id",
         metadata = Map(
-          "source"      -> "websocket",
-          "source_id"   -> sourceId,
-          "ws_url"      -> wsUrl,
-          "format"      -> "json",
+          "source"       -> "websocket",
+          "source_id"    -> sourceId,
+          "ws_url"       -> wsUrl,
+          "format"       -> "json",
           "record_count" -> recordCount.toString,
-          "timestamp"   -> Instant.now().toString,
+          "timestamp"    -> Instant.now().toString,
         ),
       )
     } match {
@@ -305,12 +303,12 @@ class WebSocketSource(
       id = UUID.randomUUID().toString,
       data = Map("message" -> message),
       metadata = Map(
-        "source"      -> "websocket",
-        "source_id"   -> sourceId,
-        "ws_url"      -> wsUrl,
-        "format"      -> "text",
+        "source"       -> "websocket",
+        "source_id"    -> sourceId,
+        "ws_url"       -> wsUrl,
+        "format"       -> "text",
         "record_count" -> recordCount.toString,
-        "timestamp"   -> Instant.now().toString,
+        "timestamp"    -> Instant.now().toString,
       ),
     )
   }
@@ -368,9 +366,9 @@ class WebSocketSource(
       return Future.successful(Done)
     }
 
-    val batchId     = UUID.randomUUID().toString
-    val offset      = recordCount
-    val sendTimeMs  = System.currentTimeMillis()
+    val batchId    = UUID.randomUUID().toString
+    val offset     = recordCount
+    val sendTimeMs = System.currentTimeMillis()
 
     log.debug(
       "Sending batch: batchId={} records={} count={} url={}",

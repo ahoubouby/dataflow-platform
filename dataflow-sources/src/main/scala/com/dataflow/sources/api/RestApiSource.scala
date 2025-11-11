@@ -2,13 +2,15 @@ package com.dataflow.sources.api
 
 import java.time.Instant
 import java.util.UUID
+
 import scala.concurrent.{ExecutionContext, Future}
 import scala.concurrent.duration._
 import scala.util.{Failure, Success, Try}
+
 import com.dataflow.domain.commands.{Command, IngestBatch}
 import com.dataflow.domain.models.{DataRecord, SourceConfig}
-import com.dataflow.sources.models.SourceState
 import com.dataflow.sources.{Source, SourceMetricsReporter}
+import com.dataflow.sources.models.SourceState
 import org.apache.pekko.{Done, NotUsed}
 import org.apache.pekko.actor.typed.{ActorRef, ActorSystem}
 import org.apache.pekko.cluster.sharding.typed.ShardingEnvelope
@@ -126,12 +128,8 @@ class RestApiSource(
   /**
    * Create streaming source from API.
    */
-  override def stream(): PekkoSource[DataRecord, Future[Done]] = {
-    val base: PekkoSource[DataRecord, NotUsed] =
-      buildDataStream()
-
-    base.mapMaterializedValue(_ => Future.successful(Done))
-  }
+  override def stream(): PekkoSource[DataRecord, NotUsed] =
+    buildDataStream()
 
   private def buildDataStream(): PekkoSource[DataRecord, NotUsed] = {
     // Create a tick source that polls the API at regular intervals
@@ -198,7 +196,7 @@ class RestApiSource(
             case status =>
               response.discardEntityBytes()
               log.warn("API request failed with status: {}", status)
-              SourceMetricsReporter.recordError(pipelineId, "api", s"http_${statusCode}")
+              SourceMetricsReporter.recordError(pipelineId, "api", s"http_$statusCode")
               Future.successful(List.empty)
           }
       }
@@ -427,9 +425,9 @@ class RestApiSource(
       return Future.successful(Done)
     }
 
-    val batchId     = UUID.randomUUID().toString
-    val offset      = currentPage
-    val sendTimeMs  = System.currentTimeMillis()
+    val batchId    = UUID.randomUUID().toString
+    val offset     = currentPage
+    val sendTimeMs = System.currentTimeMillis()
 
     log.debug(
       "Sending batch: batchId={} records={} page={} url={}",

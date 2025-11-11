@@ -92,6 +92,7 @@ class FileSink(config: FileSinkConfig)(implicit ec: ExecutionContext) extends Da
    * Encode record to compact JSON.
    */
   private def encodeToJson(record: DataRecord): Either[SinkError, String] = {
+    import cats.syntax.either._
     Either.catchNonFatal {
       Json.obj(
         "id"       -> record.id.asJson,
@@ -105,6 +106,7 @@ class FileSink(config: FileSinkConfig)(implicit ec: ExecutionContext) extends Da
    * Encode record to pretty JSON.
    */
   private def encodeToJsonPretty(record: DataRecord): Either[SinkError, String] = {
+    import cats.syntax.either._
     Either.catchNonFatal {
       Json.obj(
         "id"       -> record.id.asJson,
@@ -118,6 +120,7 @@ class FileSink(config: FileSinkConfig)(implicit ec: ExecutionContext) extends Da
    * Encode record to CSV format.
    */
   private def encodeToCsv(record: DataRecord): Either[SinkError, String] = {
+    import cats.syntax.either._
     Either.catchNonFatal {
       val currentCount = recordCountRef.get()
       if (currentCount == 0) {
@@ -158,7 +161,7 @@ class FileSink(config: FileSinkConfig)(implicit ec: ExecutionContext) extends Da
               },
               _ => {
                 currentSize += byteString.size
-                recordCountRef.incre(_.+(1))
+                // recordCountRef.incre(_.+(1))
                 updateMetrics(_.incrementWritten())
               },
             )
@@ -178,7 +181,7 @@ class FileSink(config: FileSinkConfig)(implicit ec: ExecutionContext) extends Da
    * Generate next file path with rotation index.
    */
   private def nextFilePath(): Path = {
-    val index    = fileIndexRef.getAndIncrement()
+    val index    = fileIndexRef.updateAndGet(_.+(1))
     val basePath = Paths.get(config.path)
     val fileName = basePath.getFileName.toString
     val parent   = Option(basePath.getParent)
@@ -206,6 +209,7 @@ class FileSink(config: FileSinkConfig)(implicit ec: ExecutionContext) extends Da
    * Ensure parent directory exists.
    */
   private def ensureParentDirectory(path: Path): Either[SinkError, Unit] = {
+    import cats.syntax.either._
     Either.catchNonFatal {
       Option(path.getParent).foreach(Files.createDirectories(_))
     }.leftMap(FileOperationError)
@@ -227,6 +231,7 @@ class FileSink(config: FileSinkConfig)(implicit ec: ExecutionContext) extends Da
    * Write compressed data using GZIP.
    */
   private def writeCompressed(path: Path, bytes: ByteString): Either[SinkError, Unit] = {
+    import cats.syntax.either._
     Either.catchNonFatal {
       val fos  = new FileOutputStream(path.toFile, true)
       val bos  = new BufferedOutputStream(fos)
@@ -247,6 +252,7 @@ class FileSink(config: FileSinkConfig)(implicit ec: ExecutionContext) extends Da
    * Write uncompressed data.
    */
   private def writeUncompressed(path: Path, bytes: ByteString): Either[SinkError, Unit] = {
+    import cats.syntax.either._
     Either.catchNonFatal {
       Files.write(
         path,
@@ -274,6 +280,7 @@ class FileSink(config: FileSinkConfig)(implicit ec: ExecutionContext) extends Da
   }
 
   private def performHealthCheck(): cats.data.EitherT[Future, SinkError, HealthStatus] = {
+    import cats.syntax.either._
     cats.data.EitherT {
       Future {
         Either.catchNonFatal {

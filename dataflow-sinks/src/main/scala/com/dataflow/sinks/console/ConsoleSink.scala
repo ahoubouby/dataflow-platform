@@ -142,7 +142,7 @@ class ConsoleSink(
   private def printSummary(): Unit = {
     val metrics   = metricsRef.get()
     val uptime    = metrics.startTime.getOrElse(0)
-    val uptimeSec = uptime / 1000.0
+    val uptimeSec = uptime // / 1000.0
 
     import AnsiColors._
 
@@ -172,7 +172,7 @@ class ConsoleSink(
           colorsEnabled,
         )} records/sec
          |${colored("Uptime:", Magenta, colorsEnabled)}          ${colored(
-          f"$uptimeSec%.2f",
+          f"$uptimeSec",
           BrightWhite,
           colorsEnabled,
         )} seconds
@@ -192,7 +192,7 @@ class ConsoleSink(
          |Records Failed:  ${metrics.recordsFailed}
          |Success Rate:    ${f"${metrics.recordsWritten * 100}%.2f%%"}
          |Throughput:       ${f"${metrics.batchesWritten}%.2f"} records/sec
-         |Uptime:          ${f"$uptimeSec%.2f"} seconds
+         |Uptime:          ${f"$uptimeSec"} seconds
          |Format:           ${config.format}
          |${"=" * 60}
          |""".stripMargin
@@ -244,15 +244,15 @@ object ConsoleSink {
     private var printSummary:    Boolean                   = true
     private var timestampFormat: Option[DateTimeFormatter] = None
 
-    def withFormat(f: OutputFormat):                 ConsoleSinkBuilder = { format = f; this }
-    def withColorScheme(cs: ColorScheme):            ConsoleSinkBuilder = { colorScheme = cs; this }
-    def withTarget(t: OutputTarget):                 ConsoleSinkBuilder = { target = t; this }
-    def withTimestamp(show: Boolean):                ConsoleSinkBuilder = { showTimestamp = show; this }
-    def withMetadata(show: Boolean):                 ConsoleSinkBuilder = { showMetadata = show; this }
-    def withMaxFieldWidth(width: Int):               ConsoleSinkBuilder = { maxFieldWidth = width; this }
-    def withBufferSize(size: Int):                   ConsoleSinkBuilder = { bufferSize = size; this }
-    def withFlushInterval(interval: Int):            ConsoleSinkBuilder = { flushInterval = interval; this }
-    def withSummary(show: Boolean):                  ConsoleSinkBuilder = { printSummary = show; this }
+    def withFormat(f: OutputFormat):      ConsoleSinkBuilder = { format = f; this }
+    def withColorScheme(cs: ColorScheme): ConsoleSinkBuilder = { colorScheme = cs; this }
+    def withTarget(t: OutputTarget):      ConsoleSinkBuilder = { target = t; this }
+    def withTimestamp(show: Boolean):     ConsoleSinkBuilder = { showTimestamp = show; this }
+    def withMetadata(show: Boolean):      ConsoleSinkBuilder = { showMetadata = show; this }
+    def withMaxFieldWidth(width: Int):    ConsoleSinkBuilder = { maxFieldWidth = width; this }
+    def withBufferSize(size: Int):        ConsoleSinkBuilder = { bufferSize = size; this }
+    def withFlushInterval(interval: Int): ConsoleSinkBuilder = { flushInterval = interval; this }
+    def withSummary(show: Boolean):       ConsoleSinkBuilder = { printSummary = show; this }
 
     def withTimestampFormat(fmt: DateTimeFormatter): ConsoleSinkBuilder = {
       timestampFormat = Some(fmt); this

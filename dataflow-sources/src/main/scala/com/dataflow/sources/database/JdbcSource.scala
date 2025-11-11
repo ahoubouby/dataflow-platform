@@ -3,13 +3,15 @@ package com.dataflow.sources.database
 import java.sql.{Connection, DriverManager, ResultSet, Timestamp}
 import java.time.Instant
 import java.util.UUID
-import scala.concurrent.{ExecutionContext, Future, blocking}
+
+import scala.concurrent.{blocking, ExecutionContext, Future}
 import scala.concurrent.duration._
 import scala.util.{Failure, Success, Try, Using}
+
 import com.dataflow.domain.commands.{Command, IngestBatch}
 import com.dataflow.domain.models.{DataRecord, SourceConfig}
-import com.dataflow.sources.models.SourceState
 import com.dataflow.sources.{Source, SourceMetricsReporter}
+import com.dataflow.sources.models.SourceState
 import org.apache.pekko.{Done, NotUsed}
 import org.apache.pekko.actor.typed.{ActorRef, ActorSystem}
 import org.apache.pekko.cluster.sharding.typed.ShardingEnvelope
@@ -109,12 +111,8 @@ class JdbcSource(
   /**
    * Create streaming source from database.
    */
-  override def stream(): PekkoSource[DataRecord, Future[Done]] = {
-    val base: PekkoSource[DataRecord, NotUsed] =
-      buildDataStream()
-
-    base.mapMaterializedValue(_ => Future.successful(Done))
-  }
+  override def stream(): PekkoSource[DataRecord, NotUsed] =
+    buildDataStream()
 
   private def buildDataStream(): PekkoSource[DataRecord, NotUsed] = {
     // Create a tick source that polls the database at regular intervals
@@ -267,15 +265,15 @@ class JdbcSource(
               colValue match {
                 case ts: Timestamp =>
                   SourceMetricsReporter.updateDatabaseWatermark(pipelineId, ts.getTime)
-                case _ => // ignore
+                case _             => // ignore
               }
-            case "id" =>
+            case "id"        =>
               colValue match {
                 case long: Long => SourceMetricsReporter.updateDatabaseWatermark(pipelineId, long)
                 case int: Int   => SourceMetricsReporter.updateDatabaseWatermark(pipelineId, int.toLong)
                 case _          => // ignore
               }
-            case _ => // ignore
+            case _           => // ignore
           }
       }
 
@@ -355,9 +353,9 @@ class JdbcSource(
       return Future.successful(Done)
     }
 
-    val batchId     = UUID.randomUUID().toString
-    val offset      = recordCount
-    val sendTimeMs  = System.currentTimeMillis()
+    val batchId    = UUID.randomUUID().toString
+    val offset     = recordCount
+    val sendTimeMs = System.currentTimeMillis()
 
     log.debug(
       "Sending batch: batchId={} records={} offset={} url={}",

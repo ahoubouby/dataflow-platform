@@ -1,7 +1,6 @@
 package com.dataflow.sources
 
 import scala.concurrent.Future
-
 import com.dataflow.domain.commands.Command
 import com.dataflow.domain.models.{DataRecord, SourceConfig, SourceType}
 import com.dataflow.sources.api.RestApiSource
@@ -9,7 +8,7 @@ import com.dataflow.sources.database.JdbcSource
 import com.dataflow.sources.file.{CSVFileSource, JSONFileSource, TextFileSource}
 import com.dataflow.sources.kafka.KafkaSource
 import com.dataflow.sources.models.SourceState
-import org.apache.pekko.Done
+import org.apache.pekko.{Done, NotUsed}
 import org.apache.pekko.actor.typed.{ActorRef, ActorSystem}
 import org.apache.pekko.cluster.sharding.typed.ShardingEnvelope
 import org.apache.pekko.stream.scaladsl.{Source => PekkoSource}
@@ -55,7 +54,7 @@ trait Source {
    *
    * @return Pekko Stream Source of DataRecords
    */
-  def stream(): PekkoSource[DataRecord, Future[Done]]
+  def stream(): PekkoSource[DataRecord, NotUsed]
 
   /**
    * Start the source (begin reading data).
@@ -201,10 +200,10 @@ private class TestSourceAdapter(
 
   override def sourceId: String = s"test-source-$pipelineId"
 
-  override def stream(): PekkoSource[DataRecord, Future[Done]] =
+  override def stream(): PekkoSource[DataRecord, NotUsed] =
     // TestSource is actor-based, so we'd need to adapt it
     // For now, return empty source
-    PekkoSource.empty[DataRecord].mapMaterializedValue(_ => Future.successful(Done))
+    PekkoSource.empty[DataRecord]// .mapMaterializedValue(_ => Future.successful(Done))
 
   override def start(pipelineShardRegion: ActorRef[ShardingEnvelope[Command]]): Future[Done] =
     // Spawn TestSource actor

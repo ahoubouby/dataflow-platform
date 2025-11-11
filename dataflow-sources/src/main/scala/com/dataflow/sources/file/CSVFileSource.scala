@@ -32,7 +32,7 @@ import org.apache.pekko.stream.scaladsl.{Source => PekkoSource}
 class CSVFileSource(
   pipelineId: String,
   config: SourceConfig,
-)(implicit system: ActorSystem[_]) extends FileSourceBase(pipelineId, config) {
+)(implicit system: ActorSystem[_]) extends FileSourceBaseV3(pipelineId, config) {
 
   override protected val formatName: String = "csv"
 
