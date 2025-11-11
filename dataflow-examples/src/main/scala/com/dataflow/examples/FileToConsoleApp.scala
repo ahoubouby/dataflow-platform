@@ -114,7 +114,7 @@ object FileToConsoleApp {
     // Sample CSV data - User activity log
     val csvData = """id,user,action,timestamp,value
                     |1,alice,login,2024-01-01T10:00:00,0
-                    |2,bob,purchase,2024-01-01T10:05:00,150
+                    |2,bob,purchase,2024-01-01T10:05:00,1500
                     |3,alice,view,2024-01-01T10:10:00,0
                     |4,charlie,purchase,2024-01-01T10:15:00,250
                     |5,bob,view,2024-01-01T10:20:00,0
@@ -185,8 +185,11 @@ object FileToConsoleApp {
             "has-header" -> "true",
           ),
           batchSize = 100,
-          pollIntervalMs = 500,
         )
+//        val filter = FilterTransform.and(
+//          new FilterTransform(FilterConfig("action == purchase")),
+//          // new FilterTransform(FilterConfig("value == 1000"))
+//        )
         for {
           // Create CSV file source
           source          <- IO(new CSVFileSource("csv-pipeline", config))
@@ -195,10 +198,6 @@ object FileToConsoleApp {
           // Create console sink with pretty JSON format
           consoleSink     <- createConsoleSink(
                                format = OutputFormat.PrettyJSON,
-                               colorScheme = ColorScheme.Enabled,
-                               showTimestamp = true,
-                               showMetadata = true,
-                               printSummary = true,
                              )
 
           // Build and run pipeline
@@ -263,10 +262,6 @@ object FileToConsoleApp {
           // Create console sink with structured format
           consoleSink  <- createConsoleSink(
                             format = OutputFormat.Structured,
-                            colorScheme = ColorScheme.Enabled,
-                            showTimestamp = false,
-                            showMetadata = false,
-                            printSummary = true,
                           )
 
           // Build and run pipeline
@@ -346,10 +341,6 @@ object FileToConsoleApp {
           // Create console sink with table format
           consoleSink        <- createConsoleSink(
                                   format = OutputFormat.Table,
-                                  colorScheme = ColorScheme.Enabled,
-                                  showTimestamp = false,
-                                  showMetadata = false,
-                                  printSummary = true,
                                 )
 
           // Build and run pipeline with two transforms
@@ -375,16 +366,13 @@ object FileToConsoleApp {
    */
   private def createConsoleSink(
     format: OutputFormat,
-    colorScheme: ColorScheme,
-    showTimestamp: Boolean,
-    showMetadata: Boolean,
-    printSummary: Boolean,
+    colorScheme: ColorScheme = ColorScheme.Enabled,
   )(implicit ec: ExecutionContext,
   ): IO[ConsoleSink] = {
     IO.fromEither(
       ConsoleSink.builder()
         .withFormat(OutputFormat.Table)
-        .withColorScheme(ColorScheme.Enabled)
+        .withColorScheme(colorScheme)
         .withTimestamp(true)
         .withSummary(true)
         .build()
@@ -524,9 +512,9 @@ object FileToConsoleApp {
     println()
     println("╔═══════════════════════════════════════════════════════════════════════════════╗")
     println("║                     DataFlow Platform - Integration Example                   ║")
-    println("║                                                                                ║")
+    println("║                                                                               ║")
     println("║  Demonstrating: Sources → Transforms → Sinks                                  ║")
-    println("║  Technologies: Scala, Pekko Streams, Cats Effect, Functional Programming     ║")
+    println("║  Technologies: Scala, Pekko Streams, Cats Effect, Functional Programming      ║")
     println("╚═══════════════════════════════════════════════════════════════════════════════╝")
     println()
   }

@@ -244,7 +244,7 @@ object PipelineAggregate {
             pipelineId = f.pipelineId,
             name = f.name,
             description = f.description,
-            config = PipelineConfig(SourceConfig( SourceType.fromString("kafka").getOrElse(SourceType.File), "", 0, 0), List.empty, SinkConfig("", "", 0)),
+            config = PipelineConfig(SourceConfig( SourceType.fromString("kafka").getOrElse(SourceType.File), "", 0), List.empty, SinkConfig("", "", 0)),
             createdAt = ts,
           )
 

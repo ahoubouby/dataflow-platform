@@ -54,8 +54,9 @@ object PipelineValidators {
     source =>
       source.connectionString is notEmpty
       source.batchSize should be >= MinBatchSize
-      source.pollIntervalMs should be > 0
-      source.pollIntervalMs should be <= MaxPollIntervalMs
+    // TODO: now we are using options instead of Int
+      // source.pollIntervalMs should be > 0
+      // source.pollIntervalMs should be <= MaxPollIntervalMs
   }
 
   /**

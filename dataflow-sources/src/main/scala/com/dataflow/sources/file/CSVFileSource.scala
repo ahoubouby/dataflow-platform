@@ -36,64 +36,73 @@ class CSVFileSource(
 
   override protected val formatName: String = "csv"
 
-  private val delimiter: String =
-    config.options.getOrElse("delimiter", ",")
-
-  private val hasHeader: Boolean =
-    config.options.getOrElse("has-header", "true").toBoolean
-
-  @volatile private var headerColumns: Option[Vector[String]] = None
+  private val delimiter: String  = config.options.getOrElse("delimiter", ",")
+  private val hasHeader: Boolean = config.options.getOrElse("has-header", "true").toBoolean
 
   override protected def buildFormatStream(): PekkoSource[DataRecord, NotUsed] = {
     createLineStream()
-      .map {
-        case (line, idx) =>
-          // If we have a header, the first line (idx == 0) becomes column names
-          if (hasHeader && idx == 0 && resumeFromLineNumber == 0) {
-            val cols = line.split(delimiter, -1).map(_.trim).toVector
-            headerColumns = Some(cols)
-            None // Don't emit a DataRecord for the header
-          } else {
-            parseCsvLine(line, idx)
+      .statefulMapConcat {
+        () =>
+          var headerCols: Option[Vector[String]] = None
+
+          {
+            case (line, idx) =>
+              // case 1: treat first line as header (only if we start from 0)
+              if (hasHeader && idx == 0 && resumeFromLineNumber == 0) {
+                headerCols = Some(parseHeader(line, delimiter))
+                Nil // don’t emit a record for the header line
+              } else {
+                // parse data line with current header (or without)
+                parseCsvLine(line, idx, headerCols).toList
+              }
           }
       }
-      .collect { case Some(record) => record }
       .mapMaterializedValue(_ => NotUsed)
   }
 
   /**
-   * Parse a CSV line into a DataRecord.
+   * Parse header line into columns.
    */
-  private def parseCsvLine(line: String, lineNumber: Long): Option[DataRecord] = {
-    Try {
-      val values = line.split(delimiter, -1).map(_.trim).toVector
+  private def parseHeader(line: String, delimiter: String): Vector[String] =
+    line.split(delimiter, -1).map(_.trim).toVector
 
-      // Map values to column names if header exists
-      val data: Map[String, String] = headerColumns match {
+  /**
+   * Parse a CSV line into a DataRecord (pure, no Try).
+   */
+  private def parseCsvLine(
+    line: String,
+    lineNumber: Long,
+    headerCols: Option[Vector[String]],
+  ): Option[DataRecord] = {
+    // record raw line metrics (like original code)
+    recordLineMetrics(line)
+
+    val values: Vector[String] =
+      line.split(delimiter, -1).map(_.trim).toVector
+
+    // map to columns if we have header, otherwise field1, field2, ...
+    val data: Map[String, String] =
+      headerCols match {
         case Some(cols) =>
-          // Zip with header columns
-          cols.zip(values).toMap
+          cols.zipAll(values, "", "").toMap
         case None       =>
-          // Generate field1, field2, ... names
           values.zipWithIndex.map { case (v, i) => s"field${i + 1}" -> v }.toMap
       }
 
-      val record = DataRecord(
-        id = data.getOrElse("id", UUID.randomUUID().toString),
-        data = data,
-        metadata = createMetadata(lineNumber),
+    // we can still fail gracefully if data is empty
+    if (data.isEmpty) {
+      recordParseError()
+      log.warn("Failed to parse CSV line {}: empty data", Long.box(lineNumber))
+      None
+    } else {
+      val id = data.getOrElse("id", UUID.randomUUID().toString)
+      Some(
+        DataRecord(
+          id = id,
+          data = data,
+          metadata = createMetadata(lineNumber),
+        ),
       )
-
-      // Record metrics
-      recordLineMetrics(line)
-
-      record
-    } match {
-      case Success(record) => Some(record)
-      case Failure(ex)     =>
-        recordParseError()
-        log.warn("Failed to parse CSV line {}: {}", lineNumber, ex.getMessage)
-        None
     }
   }
 }

@@ -240,28 +240,41 @@ object FilterValidator {
    * Validate filter expression syntax.
    */
   def validate(expression: String): Either[FilterError, Unit] = {
+    val trimmed = expression.trim
+
+    if (trimmed.isEmpty)
+      return Left(InvalidExpressionFormat(expression, "Expression cannot be empty"))
+
+    if (isCombinedExpression(trimmed))
+      return Right(())
+
+    validateSimple(trimmed)
+  }
+
+  private def isCombinedExpression(expr: String): Boolean = {
+    // very simple detection; you can enrich it later
+    val upper = expr.toUpperCase
+    upper.contains("AND") || upper.contains("OR")
+  }
+
+  private def validateSimple(expr: String): Either[FilterError, Unit] = {
+    val parts = expr.split("\\s+")
     for {
-      _    <- Either.cond(
-                expression.trim.nonEmpty,
-                (),
-                InvalidExpressionFormat(expression, "Expression cannot be empty"),
-              )
-      parts = expression.trim.split("\\s+")
-      _    <- Either.cond(
-                parts.length == 3,
-                (),
-                InvalidExpressionFormat(expression, "Expression must have 3 parts: field operator value"),
-              )
-      _    <- Either.cond(
-                parts(0).nonEmpty,
-                (),
-                InvalidExpressionFormat(expression, "Field name cannot be empty"),
-              )
-      _    <- Either.cond(
-                parts(2).nonEmpty,
-                (),
-                InvalidExpressionFormat(expression, "Value cannot be empty"),
-              )
+      _ <- Either.cond(
+             parts.length == 3,
+             (),
+             InvalidExpressionFormat(expr, "Expression must have 3 parts: field operator value"),
+           )
+      _ <- Either.cond(
+             parts(0).nonEmpty,
+             (),
+             InvalidExpressionFormat(expr, "Field name cannot be empty"),
+           )
+      _ <- Either.cond(
+             parts(2).nonEmpty,
+             (),
+             InvalidExpressionFormat(expr, "Value cannot be empty"),
+           )
     } yield ()
   }
 
@@ -310,7 +323,7 @@ object FilterTransform {
   def and(filters: FilterTransform*): FilterTransform = {
     require(filters.nonEmpty, "At least one filter required")
 
-    new FilterTransform(FilterConfig("combined", ErrorHandlingStrategy.Skip)) {
+    new FilterTransform(FilterConfig("AND", ErrorHandlingStrategy.Skip)) {
       override def evaluateFilter(record: DataRecord): Either[FilterError, Boolean] = {
         filters.toList
           .traverse(_.evaluateFilter(record))
@@ -325,7 +338,7 @@ object FilterTransform {
   def or(filters: FilterTransform*): FilterTransform = {
     require(filters.nonEmpty, "At least one filter required")
 
-    new FilterTransform(FilterConfig("combined", ErrorHandlingStrategy.Skip)) {
+    new FilterTransform(FilterConfig("OR", ErrorHandlingStrategy.Skip)) {
       override def evaluateFilter(record: DataRecord): Either[FilterError, Boolean] = {
         filters.toList
           .traverse(_.evaluateFilter(record))

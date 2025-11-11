@@ -62,28 +62,17 @@ class JdbcSource(
   override val sourceId: String = s"database-source-$pipelineId-${UUID.randomUUID()}"
 
   // ----- options -----
-  private val jdbcUrl: String = config.connectionString
+  private val jdbcUrl:           String         = config.connectionString
+  private val username:          String         = config.options.getOrElse("username", "")
+  private val password:          String         = config.options.getOrElse("password", "")
+  private val driver:            String         = config.options.getOrElse("driver", "org.postgresql.Driver")
+  private val incrementalColumn: Option[String] = config.options.get("incremental-column")
+  private val incrementalType:   String         = config.options.getOrElse("incremental-type", "timestamp").toLowerCase
+  private val fetchSize:         Int            = config.options.getOrElse("fetch-size", "1000").toInt
 
-  private val username: String =
-    config.options.getOrElse("username", "")
-
-  private val password: String =
-    config.options.getOrElse("password", "")
-
-  private val driver: String =
-    config.options.getOrElse("driver", "org.postgresql.Driver")
-
+  // query
   private val query: String =
     config.options.getOrElse("query", throw new IllegalArgumentException("Database query is required"))
-
-  private val incrementalColumn: Option[String] =
-    config.options.get("incremental-column")
-
-  private val incrementalType: String =
-    config.options.getOrElse("incremental-type", "timestamp").toLowerCase
-
-  private val fetchSize: Int =
-    config.options.getOrElse("fetch-size", "1000").toInt
 
   // State
   @volatile private var lastIncrementalValue: Option[Any]                                      = None
