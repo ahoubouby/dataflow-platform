@@ -3,6 +3,7 @@ package com.dataflow.api
 import com.dataflow.aggregates.PipelineAggregate
 import com.dataflow.api.services.PipelineService
 import com.dataflow.domain.commands.Command
+import com.dataflow.execution.{ExecutionOrchestrator, PipelineEventListener}
 import kamon.Kamon
 import org.apache.pekko.actor.typed.ActorSystem
 import org.apache.pekko.actor.typed.scaladsl.Behaviors
@@ -16,7 +17,7 @@ import scala.util.{Failure, Success}
 
 /**
  * Main application entry point for DataFlow Platform API.
- * Sets up cluster sharding and starts the HTTP server.
+ * Sets up cluster sharding, execution orchestration, and starts the HTTP server.
  */
 object ApiMain extends App {
 
@@ -39,6 +40,20 @@ object ApiMain extends App {
     })
 
     context.log.info("Cluster sharding initialized for Pipeline aggregates")
+
+    // Start execution orchestration
+    // The orchestrator manages pipeline executors based on events
+    val orchestrator = context.spawn(ExecutionOrchestrator(), "execution-orchestrator")
+    context.log.info("ExecutionOrchestrator spawned")
+
+    // Start event listener to feed events to orchestrator
+    PipelineEventListener.start(orchestrator).onComplete {
+      case Success(_) =>
+        context.log.info("PipelineEventListener started - executors will start when pipelines are started")
+      case Failure(ex) =>
+        context.log.error("Failed to start PipelineEventListener", ex)
+    }
+
 
     // Start HTTP server
     val httpServer = HttpServer()

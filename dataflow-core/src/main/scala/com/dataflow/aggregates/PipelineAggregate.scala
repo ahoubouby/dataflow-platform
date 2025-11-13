@@ -5,11 +5,8 @@ import com.dataflow.domain.commands._
 import com.dataflow.domain.events._
 import com.dataflow.domain.models._
 import com.dataflow.domain.state._
-import com.dataflow.execution.PipelineExecutor
 import com.dataflow.metrics.MetricsReporter
 import com.dataflow.recovery.{ErrorRecovery, TimeoutConfig}
-import org.apache.pekko.actor.typed.{ActorRef, Behavior}
-import org.apache.pekko.actor.typed.scaladsl.Behaviors
 import org.apache.pekko.persistence.typed.{PersistenceId, RecoveryCompleted, SnapshotCompleted}
 import org.apache.pekko.persistence.typed.scaladsl.{EventSourcedBehavior, ReplyEffect, RetentionCriteria}
 import org.slf4j.LoggerFactory
@@ -25,36 +22,16 @@ object PipelineAggregate {
   private val log           = LoggerFactory.getLogger("PipelineAggregate")
 
   // ============================================
-  // BEHAVIOR WITH EXECUTOR
-  // ============================================
-
-  def apply(pipelineId: String): Behavior[Command] = {
-    Behaviors.setup { context =>
-      // Spawn PipelineExecutor child actor
-      val executor = context.spawn(PipelineExecutor(), s"executor-$pipelineId")
-      context.watch(executor)
-
-      log.info("msg=Spawned PipelineExecutor pipelineId={}", pipelineId)
-
-      // Wrap event sourced behavior
-      createEventSourcedBehavior(pipelineId, executor)
-    }
-  }
-
-  // ============================================
   // EVENT SOURCED BEHAVIOR
   // ============================================
 
-  private def createEventSourcedBehavior(
-    pipelineId: String,
-    executor: ActorRef[PipelineExecutor.Command],
-  ): EventSourcedBehavior[Command, Event, State] = {
+  def apply(pipelineId: String): EventSourcedBehavior[Command, Event, State] = {
     EventSourcedBehavior
       .withEnforcedReplies[Command, Event, State](
         persistenceId = PersistenceId.ofUniqueId(pipelineId),
         emptyState = EmptyState,
         commandHandler = (state, command) => commandHandler(pipelineId, state, command),
-        eventHandler = (state, event) => eventHandlerWithExecutor(pipelineId, executor, state, event),
+        eventHandler = eventHandler,
       )
       .withRetention(
         RetentionCriteria
@@ -72,11 +49,6 @@ object PipelineAggregate {
                 r.checkpoint.offset,
                 r.checkpoint.recordsProcessed,
               )
-              // Restart executor for recovered running pipeline
-              executor ! PipelineExecutor.Start(
-                pipelineId = r.pipelineId,
-                config = r.config,
-                replyTo = null) // Fire and forget
             case other           =>
               log.info(
                 "msg=Recovered pipeline state pipelineId={} state={}",
@@ -123,13 +95,10 @@ object PipelineAggregate {
   }
 
   // ============================================
-  // EVENT HANDLER - State Updates with Executor Management
+  // EVENT HANDLER - State Updates
   // ============================================
 
-  private def eventHandlerWithExecutor(
-    pipelineId: String,
-    executor: ActorRef[PipelineExecutor.Command],
-  ): (State, Event) => State = {
+  private val eventHandler: (State, Event) => State = {
     (state, event) =>
       event match {
         case PipelineCreated(id, name, desc, config, ts) =>
@@ -158,14 +127,6 @@ object PipelineAggregate {
             activeBatchId = None,
           )
           MetricsReporter.recordStateTransition(cfg.pipelineId, state, newState)
-
-          // **START EXECUTOR** - Actually run the pipeline!
-          log.info("msg=Starting pipeline executor pipelineId={}", cfg.pipelineId)
-          executor ! PipelineExecutor.Start(
-            pipelineId = cfg.pipelineId,
-            config = cfg.config,
-            replyTo = null) // Fire and forget for now
-
           newState
 
         case BatchIngested(_, batchId, _, _, _) =>
@@ -214,11 +175,6 @@ object PipelineAggregate {
         case PipelineStopped(_, reason, finalMetrics, ts) =>
           val r        = state.asInstanceOf[RunningState]
           log.debug("msg=Evt PipelineStopped pipelineId={} reason={}", r.pipelineId, reason)
-
-          // **STOP EXECUTOR** - Stop pipeline execution
-          log.info("msg=Stopping pipeline executor pipelineId={}", r.pipelineId)
-          executor ! PipelineExecutor.Stop(replyTo = null)
-
           val newState = StoppedState(
             pipelineId = r.pipelineId,
             name = r.name,
@@ -235,11 +191,6 @@ object PipelineAggregate {
         case PipelinePaused(_, reason, ts) =>
           val r        = state.asInstanceOf[RunningState]
           log.debug("msg=Evt PipelinePaused pipelineId={} reason={}", r.pipelineId, reason)
-
-          // **PAUSE EXECUTOR** - Pause pipeline execution
-          log.info("msg=Pausing pipeline executor pipelineId={}", r.pipelineId)
-          executor ! PipelineExecutor.Pause(replyTo = null)
-
           val newState = PausedState(
             pipelineId = r.pipelineId,
             name = r.name,
@@ -256,11 +207,6 @@ object PipelineAggregate {
         case PipelineResumed(_, ts) =>
           val p        = state.asInstanceOf[PausedState]
           log.debug("msg=Evt PipelineResumed pipelineId={}", p.pipelineId)
-
-          // **RESUME EXECUTOR** - Resume pipeline execution
-          log.info("msg=Resuming pipeline executor pipelineId={}", p.pipelineId)
-          executor ! PipelineExecutor.Resume(replyTo = null)
-
           val newState = RunningState(
             pipelineId = p.pipelineId,
             name = p.name,

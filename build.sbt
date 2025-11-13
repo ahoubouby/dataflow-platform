@@ -288,7 +288,12 @@ lazy val dataflowSinks = (project in file("dataflow-sinks"))
 // API MODULE
 // ============================================
 lazy val dataflowApi = (project in file("dataflow-api"))
-  .dependsOn(dataflowCore % "compile->compile;test->test")
+  .dependsOn(
+    dataflowCore % "compile->compile;test->test",
+    dataflowSources % "compile->compile",
+    dataflowTransforms % "compile->compile",
+    dataflowSinks % "compile->compile"
+  )
   .settings(commonSettings)
   .settings(
     name := "dataflow-api",
