@@ -1,6 +1,5 @@
 package com.dataflow.transforms.filters
 
-import cats.implicits._
 import com.dataflow.transforms.errors._
 
 /**
@@ -27,20 +26,18 @@ import com.dataflow.transforms.errors._
  */
 object FilterExpressionParser {
 
-  /**
-   * Parse a filter expression string into an AST.
-   */
+  // -------------------------------------------
+  // public API
+  // -------------------------------------------
   def parse(expression: String): Either[FilterError, FilterExpressionAST] = {
     val tokens = tokenize(expression.trim)
     parseExpression(tokens).map(_._1)
   }
 
-  /**
-   * Tokenize the expression string.
-   * Splits on spaces but preserves operators and parentheses.
-   */
+  // -------------------------------------------
+  // tokenizer
+  // -------------------------------------------
   private def tokenize(expr: String): List[String] = {
-    // Replace operators and parentheses with spaced versions to ensure proper splitting
     val spaced = expr
       .replaceAll("\\(", " ( ")
       .replaceAll("\\)", " ) ")
@@ -54,125 +51,111 @@ object FilterExpressionParser {
     spaced.split("\\s+").filter(_.nonEmpty).toList
   }
 
-  /**
-   * Parse top-level expression (handles OR precedence).
-   */
-  private def parseExpression(tokens: List[String]): Either[FilterError, (FilterExpressionAST, List[String])] = {
+  // -------------------------------------------
+  // expression -> OR -> AND -> NOT -> primary
+  // -------------------------------------------
+  private def parseExpression(tokens: List[String]): Either[FilterError, (FilterExpressionAST, List[String])] =
     parseOrExpression(tokens)
-  }
 
-  /**
-   * Parse OR expression (lowest precedence).
-   */
-  private def parseOrExpression(tokens: List[String]): Either[FilterError, (FilterExpressionAST, List[String])] = {
-    for {
-      (firstExpr, rest1) <- parseAndExpression(tokens)
-      (finalExpr, rest2) <- collectOrExpressions(firstExpr, rest1)
-    } yield (finalExpr, rest2)
-  }
+  // OR ------------------------------------------------------------------
+  private def parseOrExpression(tokens: List[String]): Either[FilterError, (FilterExpressionAST, List[String])] =
+    parseAndExpression(tokens).flatMap {
+      case (firstExpr, rest1) =>
+        collectOrExpressions(firstExpr, rest1)
+    }
 
-  /**
-   * Collect multiple expressions joined by OR.
-   */
   private def collectOrExpressions(
     firstExpr: FilterExpressionAST,
-    tokens: List[String]
-  ): Either[FilterError, (FilterExpressionAST, List[String])] = {
+    tokens: List[String],
+  ): Either[FilterError, (FilterExpressionAST, List[String])] =
     tokens match {
       case "OR" :: rest =>
-        for {
-          (nextExpr, rest2) <- parseAndExpression(rest)
-          (finalExpr, rest3) <- collectOrExpressions(nextExpr, rest2)
-          combined = firstExpr match {
-            case OrExpression(exprs) => OrExpression(exprs :+ finalExpr)
-            case _ => finalExpr match {
-              case OrExpression(exprs) => OrExpression(firstExpr :: exprs)
-              case _ => OrExpression(List(firstExpr, finalExpr))
+        // parse the right side of OR
+        parseAndExpression(rest).flatMap {
+          case (nextExpr, rest2) =>
+            // keep collecting chained ORs
+            collectOrExpressions(nextExpr, rest2).map {
+              case (tailExpr, rest3) =>
+                val combined = combineOr(firstExpr, tailExpr)
+                (combined, rest3)
             }
-          }
-        } yield (combined, rest3)
+        }
 
       case _ =>
         Right((firstExpr, tokens))
     }
-  }
 
-  /**
-   * Parse AND expression (medium precedence).
-   */
-  private def parseAndExpression(tokens: List[String]): Either[FilterError, (FilterExpressionAST, List[String])] = {
-    for {
-      (firstExpr, rest1) <- parseNotExpression(tokens)
-      (finalExpr, rest2) <- collectAndExpressions(firstExpr, rest1)
-    } yield (finalExpr, rest2)
-  }
+  private def combineOr(left: FilterExpressionAST, right: FilterExpressionAST): FilterExpressionAST =
+    (left, right) match {
+      case (OrExpression(ls), OrExpression(rs)) => OrExpression(ls ++ rs)
+      case (OrExpression(ls), _)                => OrExpression(ls :+ right)
+      case (_, OrExpression(rs))                => OrExpression(left :: rs)
+      case _                                    => OrExpression(List(left, right))
+    }
 
-  /**
-   * Collect multiple expressions joined by AND.
-   */
+  // AND -----------------------------------------------------------------
+  private def parseAndExpression(tokens: List[String]): Either[FilterError, (FilterExpressionAST, List[String])] =
+    parseNotExpression(tokens).flatMap {
+      case (firstExpr, rest1) =>
+        collectAndExpressions(firstExpr, rest1)
+    }
+
   private def collectAndExpressions(
     firstExpr: FilterExpressionAST,
-    tokens: List[String]
-  ): Either[FilterError, (FilterExpressionAST, List[String])] = {
+    tokens: List[String],
+  ): Either[FilterError, (FilterExpressionAST, List[String])] =
     tokens match {
       case "AND" :: rest =>
-        for {
-          (nextExpr, rest2) <- parseNotExpression(rest)
-          (finalExpr, rest3) <- collectAndExpressions(nextExpr, rest2)
-          combined = firstExpr match {
-            case AndExpression(exprs) => AndExpression(exprs :+ finalExpr)
-            case _ => finalExpr match {
-              case AndExpression(exprs) => AndExpression(firstExpr :: exprs)
-              case _ => AndExpression(List(firstExpr, finalExpr))
+        parseNotExpression(rest).flatMap {
+          case (nextExpr, rest2) =>
+            collectAndExpressions(nextExpr, rest2).map {
+              case (tailExpr, rest3) =>
+                val combined = combineAnd(firstExpr, tailExpr)
+                (combined, rest3)
             }
-          }
-        } yield (combined, rest3)
+        }
 
       case _ =>
         Right((firstExpr, tokens))
     }
-  }
 
-  /**
-   * Parse NOT expression (high precedence).
-   */
-  private def parseNotExpression(tokens: List[String]): Either[FilterError, (FilterExpressionAST, List[String])] = {
+  private def combineAnd(left: FilterExpressionAST, right: FilterExpressionAST): FilterExpressionAST =
+    (left, right) match {
+      case (AndExpression(ls), AndExpression(rs)) => AndExpression(ls ++ rs)
+      case (AndExpression(ls), _)                 => AndExpression(ls :+ right)
+      case (_, AndExpression(rs))                 => AndExpression(left :: rs)
+      case _                                      => AndExpression(List(left, right))
+    }
+
+  // NOT -----------------------------------------------------------------
+  private def parseNotExpression(tokens: List[String]): Either[FilterError, (FilterExpressionAST, List[String])] =
     tokens match {
       case "NOT" :: rest =>
-        for {
-          (expr, remaining) <- parsePrimary(rest)
-        } yield (NotExpression(expr), remaining)
-
-      case _ =>
+        parsePrimary(rest).map {
+          case (expr, remaining) => (NotExpression(expr), remaining)
+        }
+      case _             =>
         parsePrimary(tokens)
     }
-  }
 
-  /**
-   * Parse primary expression (highest precedence) - simple expression or parenthesized expression.
-   */
-  private def parsePrimary(tokens: List[String]): Either[FilterError, (FilterExpressionAST, List[String])] = {
+  // PRIMARY -------------------------------------------------------------
+  private def parsePrimary(tokens: List[String]): Either[FilterError, (FilterExpressionAST, List[String])] =
     tokens match {
       case "(" :: rest =>
-        // Parenthesized expression
-        for {
-          (expr, rest2) <- parseExpression(rest)
-          remaining <- rest2 match {
-            case ")" :: rest3 => Right(rest3)
-            case _ => Left(InvalidExpressionFormat(tokens.mkString(" "), "Missing closing parenthesis"))
-          }
-        } yield (expr, remaining)
+        parseExpression(rest).flatMap {
+          case (expr, rest2) =>
+            rest2 match {
+              case ")" :: rest3 => Right((expr, rest3))
+              case _            => Left(InvalidExpressionFormat(tokens.mkString(" "), "Missing closing parenthesis"))
+            }
+        }
 
       case _ =>
-        // Simple expression: field operator value
         parseSimpleExpression(tokens)
     }
-  }
 
-  /**
-   * Parse simple expression: field operator value
-   */
-  private def parseSimpleExpression(tokens: List[String]): Either[FilterError, (FilterExpressionAST, List[String])] = {
+  // SIMPLE --------------------------------------------------------------
+  private def parseSimpleExpression(tokens: List[String]): Either[FilterError, (FilterExpressionAST, List[String])] =
     tokens match {
       case field :: opStr :: value :: rest =>
         for {
@@ -180,17 +163,15 @@ object FilterExpressionParser {
         } yield (SimpleExpression(field, operator, value), rest)
 
       case _ =>
-        Left(InvalidExpressionFormat(
-          tokens.mkString(" "),
-          "Expected format: field operator value"
-        ))
+        Left(
+          InvalidExpressionFormat(
+            tokens.mkString(" "),
+            "Expected format: field operator value",
+          ),
+        )
     }
-  }
 
-  /**
-   * Parse operator string into typed operator.
-   */
-  private def parseOperator(op: String): Either[FilterError, ComparisonOperator] = {
+  private def parseOperator(op: String): Either[FilterError, ComparisonOperator] =
     op match {
       case "==" => Right(ComparisonOperator.Equal)
       case "!=" => Right(ComparisonOperator.NotEqual)
@@ -200,11 +181,10 @@ object FilterExpressionParser {
       case "<=" => Right(ComparisonOperator.LessThanOrEqual)
       case _    => Left(UnsupportedOperator(op))
     }
-  }
 
-  /**
-   * Convert AST back to expression string (for debugging/logging).
-   */
+  // ---------------------------------------------------------------------
+  // for debugging
+  // ---------------------------------------------------------------------
   def toExpressionString(ast: FilterExpressionAST): String = ast match {
     case SimpleExpression(field, operator, value) =>
       s"$field ${ComparisonOperator.toString(operator)} $value"

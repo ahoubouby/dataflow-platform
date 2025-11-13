@@ -54,6 +54,8 @@ class FilterTransformV2(config: FilterConfig) extends StatelessTransform {
   private val logger   = LoggerFactory.getLogger(getClass)
   private val statsRef = new AtomicReference[FilterStats](FilterStats.empty)
 
+  def getConfig: FilterConfig = config
+
   // Parse and validate expression at construction time
   private val validatedAST: FilterExpressionAST =
     FilterValidatorV2.validate(config.expression)
@@ -172,7 +174,7 @@ object FilterTransformV2 {
   def and(filters: FilterTransformV2*): FilterTransformV2 = {
     require(filters.nonEmpty, "At least one filter required")
 
-    val combinedExpression = filters.map(f => s"(${f.config.expression})").mkString(" AND ")
+    val combinedExpression = filters.map(f => s"(${f.getConfig.expression})").mkString(" AND ")
     new FilterTransformV2(FilterConfig(combinedExpression, ErrorHandlingStrategy.Skip))
   }
 
@@ -182,7 +184,7 @@ object FilterTransformV2 {
   def or(filters: FilterTransformV2*): FilterTransformV2 = {
     require(filters.nonEmpty, "At least one filter required")
 
-    val combinedExpression = filters.map(f => s"(${f.config.expression})").mkString(" OR ")
+    val combinedExpression = filters.map(f => s"(${f.getConfig.expression})").mkString(" OR ")
     new FilterTransformV2(FilterConfig(combinedExpression, ErrorHandlingStrategy.Skip))
   }
 
@@ -190,7 +192,7 @@ object FilterTransformV2 {
    * Negate a filter (programmatic).
    */
   def not(filter: FilterTransformV2): FilterTransformV2 = {
-    val negatedExpression = s"NOT (${filter.config.expression})"
+    val negatedExpression = s"NOT (${filter.getConfig.expression})"
     new FilterTransformV2(FilterConfig(negatedExpression, ErrorHandlingStrategy.Skip))
   }
 }

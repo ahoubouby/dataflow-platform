@@ -1,20 +1,21 @@
 package com.dataflow.examples
 
 import cats.effect.{IO, Resource}
-import com.dataflow.domain.models.{DataRecord, SourceConfig, SourceType}
+import cats.implicits._
+import com.dataflow.domain.models.{SourceConfig, SourceType}
+import com.dataflow.examples.FileToConsoleApp.ConsoleSinkErrorT
 import com.dataflow.sinks.console.{ColorScheme, ConsoleSink, OutputFormat}
-import com.dataflow.sinks.domain.exceptions.SinkError
 import com.dataflow.sources.file.CSVFileSource
-import com.dataflow.transforms.domain.{ErrorHandlingStrategy, FilterConfig}
+import com.dataflow.transforms.domain.ErrorHandlingStrategy
+import com.dataflow.transforms.errors.{FilterError, InvalidExpressionFormat}
 import com.dataflow.transforms.filters.FilterTransformV2
 import org.apache.pekko.actor.typed.ActorSystem
 import org.apache.pekko.actor.typed.scaladsl.Behaviors
 import org.slf4j.LoggerFactory
 
 import java.nio.file.{Files, Paths, StandardOpenOption}
-import scala.concurrent.{Await, ExecutionContext}
 import scala.concurrent.duration._
-
+import scala.concurrent.{Await, ExecutionContext}
 /**
  * Example demonstrating combined filter expressions with AND, OR, NOT operators.
  *
@@ -57,22 +58,22 @@ object CombinedFilterExample {
       // Example 1: Simple filter
       _ <- runSimpleFilterExample()
       _ <- IO(printSeparator())
-
-      // Example 2: AND filter
-      _ <- runAndFilterExample()
-      _ <- IO(printSeparator())
-
-      // Example 3: OR filter
-      _ <- runOrFilterExample()
-      _ <- IO(printSeparator())
-
-      // Example 4: Complex filter with parentheses
-      _ <- runComplexFilterExample()
-      _ <- IO(printSeparator())
-
-      // Example 5: NOT filter
-      _ <- runNotFilterExample()
-      _ <- IO(printSeparator())
+//
+//      // Example 2: AND filter
+//      _ <- runAndFilterExample()
+//      _ <- IO(printSeparator())
+//
+//      // Example 3: OR filter
+//      _ <- runOrFilterExample()
+//      _ <- IO(printSeparator())
+//
+//      // Example 4: Complex filter with parentheses
+//      _ <- runComplexFilterExample()
+//      _ <- IO(printSeparator())
+//
+//      // Example 5: NOT filter
+//      _ <- runNotFilterExample()
+//      _ <- IO(printSeparator())
 
       _ <- IO(log.info("✓ All examples completed"))
     } yield ()
@@ -176,6 +177,10 @@ object CombinedFilterExample {
     )
   }
 
+
+  case class FilterSinkError(filterError: FilterError)
+    extends Exception(filterError.message)
+
   /**
    * Generic pipeline runner for filter examples.
    */
@@ -206,7 +211,8 @@ object CombinedFilterExample {
         // Create filter transform with the test expression
         filterTransform <- IO.fromEither(
           FilterTransformV2.create(expression, ErrorHandlingStrategy.Skip)
-        ).leftMap(err => new RuntimeException(s"Failed to create filter: ${err.message}"))
+            .leftMap(err => FilterSinkError(err))
+        )
 
         // Create console sink with table format
         consoleSink <- IO.fromEither(
@@ -217,7 +223,8 @@ object CombinedFilterExample {
             .withMetadata(false)
             .withSummary(true)
             .build()
-        ).leftMap(err => new RuntimeException(s"Failed to create sink: ${err.message}"))
+            .leftMap(err => ConsoleSinkErrorT(err))
+        )
 
         // Run pipeline
         _ <- IO.fromFuture(IO {
@@ -231,10 +238,10 @@ object CombinedFilterExample {
         stats <- IO(filterTransform.stats)
         _ <- IO {
           log.info(s"Filter Expression: $expression")
-          log.info(s"Total records processed: ${stats.totalProcessed}")
-          log.info(s"Matched records: ${stats.matchedCount}")
-          log.info(s"Filtered out: ${stats.filteredCount}")
-          log.info(s"Errors: ${stats.errorCount}")
+//          log.info(s"Total records processed: ${stats.totalProcessed}")
+//          log.info(s"Matched records: ${stats.matchedCount}")
+//          log.info(s"Filtered out: ${stats.filteredCount}")
+//          log.info(s"Errors: ${stats.errorCount}")
           log.info(s"Records displayed: ${metrics.recordsWritten}")
         }
 
