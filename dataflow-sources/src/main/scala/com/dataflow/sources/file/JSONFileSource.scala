@@ -32,7 +32,7 @@ import spray.json._
 class JSONFileSource(
   pipelineId: String,
   config: SourceConfig,
-)(implicit system: ActorSystem[_]) extends FileSourceBase(pipelineId, config) {
+)(implicit system: ActorSystem[_]) extends FileSourceBaseV3(pipelineId, config) {
 
   override protected val formatName: String = "json"
 

@@ -1,13 +1,14 @@
 package com.dataflow.sources.kafka
 
-import com.dataflow.sources.{Source, SourceMetricsReporter}
-
 import java.time.Instant
 import java.util.UUID
+
 import scala.concurrent.{ExecutionContext, Future}
 import scala.util.{Failure, Success, Try}
+
 import com.dataflow.domain.commands.{Command, IngestBatch}
 import com.dataflow.domain.models.{DataRecord, SourceConfig}
+import com.dataflow.sources.{Source, SourceMetricsReporter}
 import com.dataflow.sources.models.SourceState
 import org.apache.kafka.clients.consumer.ConsumerConfig
 import org.apache.kafka.common.serialization.StringDeserializer
@@ -115,13 +116,8 @@ class KafkaSource(
   /**
    * Create streaming source from Kafka.
    */
-  override def stream(): PekkoSource[DataRecord, Future[Done]] = {
-    val base: PekkoSource[DataRecord, NotUsed] =
-      buildDataStream()
-
-    // adapt materialized value to what the trait wants
-    base.mapMaterializedValue(_ => Future.successful(Done))
-  }
+  override def stream(): PekkoSource[DataRecord, NotUsed] =
+    buildDataStream()
 
   private def buildDataStream(): PekkoSource[DataRecord, NotUsed] = {
     Consumer
@@ -349,9 +345,9 @@ class KafkaSource(
       return Future.successful(Done)
     }
 
-    val batchId     = UUID.randomUUID().toString
-    val offset      = currentKafkaOffset
-    val sendTimeMs  = System.currentTimeMillis()
+    val batchId    = UUID.randomUUID().toString
+    val offset     = currentKafkaOffset
+    val sendTimeMs = System.currentTimeMillis()
 
     log.debug(
       "Sending batch: batchId={} records={} offset={} topic={}",

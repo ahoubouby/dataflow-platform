@@ -9,7 +9,7 @@ final case class SourceConfig(
   sourceType: SourceType,   // now strongly typed
   connectionString: String, // Connection details
   batchSize: Int,           // Records per batch
-  pollIntervalMs: Int,      // Milliseconds between polls
+  pollIntervalMs: Int = 0,      // Milliseconds between polls
   options: Map[String, String] = Map.empty
 ) extends CborSerializable
 
