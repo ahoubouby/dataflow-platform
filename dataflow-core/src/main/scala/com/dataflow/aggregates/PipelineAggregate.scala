@@ -95,13 +95,15 @@ object PipelineAggregate {
   }
 
   // ============================================
-  // EVENT HANDLER - State Updates
+  // EVENT HANDLER - State Updates with Proper Transitions
   // ============================================
 
   private val eventHandler: (State, Event) => State = {
     (state, event) =>
-      event match {
-        case PipelineCreated(id, name, desc, config, ts) =>
+      // Pattern match on BOTH state and event for safe transitions
+      (state, event) match {
+        // EmptyState → ConfiguredState
+        case (EmptyState, PipelineCreated(id, name, desc, config, ts)) =>
           log.debug("msg=Evt PipelineCreated id={} name='{}'", id, name)
           ConfiguredState(
             pipelineId = id,
@@ -111,9 +113,9 @@ object PipelineAggregate {
             createdAt = ts,
           )
 
-        case PipelineStarted(_, ts) =>
-          val cfg      = state.asInstanceOf[ConfiguredState]
-          log.debug("msg=Evt PipelineStarted pipelineId={}", cfg.pipelineId)
+        // ConfiguredState → RunningState
+        case (cfg: ConfiguredState, PipelineStarted(_, ts)) =>
+          log.debug("msg=Evt PipelineStarted pipelineId={} from=ConfiguredState", cfg.pipelineId)
           val newState = RunningState(
             pipelineId = cfg.pipelineId,
             name = cfg.name,
@@ -129,12 +131,29 @@ object PipelineAggregate {
           MetricsReporter.recordStateTransition(cfg.pipelineId, state, newState)
           newState
 
-        case BatchIngested(_, batchId, _, _, _) =>
-          val r = state.asInstanceOf[RunningState]
+        // StoppedState → RunningState (restart)
+        case (stopped: StoppedState, PipelineStarted(_, ts)) =>
+          log.info("msg=Evt PipelineStarted pipelineId={} from=StoppedState (restart)", stopped.pipelineId)
+          val newState = RunningState(
+            pipelineId = stopped.pipelineId,
+            name = stopped.name,
+            description = stopped.description,
+            config = stopped.config,
+            startedAt = ts,
+            checkpoint = stopped.lastCheckpoint, // Resume from last checkpoint!
+            metrics = PipelineMetrics.empty,     // Reset metrics for new run
+            processedBatchIds = Set.empty,
+            retryCount = 0,
+            activeBatchId = None,
+          )
+          MetricsReporter.recordStateTransition(stopped.pipelineId, state, newState)
+          newState
+
+        // RunningState batch events
+        case (r: RunningState, BatchIngested(_, batchId, _, _, _)) =>
           r.copy(activeBatchId = Some(batchId))
 
-        case BatchProcessed(pipelineId, batchId, ok, ko, timeMs, _) =>
-          val r          = state.asInstanceOf[RunningState]
+        case (r: RunningState, BatchProcessed(pipelineId, batchId, ok, ko, timeMs, _)) =>
           // Record batch processing metrics
           MetricsReporter.recordBatchProcessed(pipelineId, ok, ko, timeMs)
           val newMetrics = r.metrics.incrementBatch(ok, ko, timeMs)
@@ -146,34 +165,22 @@ object PipelineAggregate {
             retryCount = ErrorRecovery.resetRetryCount(),
           )
 
-        case CheckpointUpdated(pipelineId, checkpoint, _) =>
-          state match {
-            case r: RunningState =>
-              MetricsReporter.recordCheckpointUpdate(pipelineId, checkpoint.offset)
-              r.copy(checkpoint = checkpoint)
-            case s               => s
-          }
+        case (r: RunningState, CheckpointUpdated(pipelineId, checkpoint, _)) =>
+          MetricsReporter.recordCheckpointUpdate(pipelineId, checkpoint.offset)
+          r.copy(checkpoint = checkpoint)
 
-        case RetryScheduled(pipelineId, error, retryCount, _, _) =>
-          state match {
-            case r: RunningState =>
-              log.debug("msg=Evt RetryScheduled pipelineId={} retryCount={}", r.pipelineId, retryCount)
-              MetricsReporter.recordRetryScheduled(pipelineId, error.code, retryCount)
-              r.copy(retryCount = retryCount)
-            case s               => s
-          }
+        case (r: RunningState, RetryScheduled(pipelineId, error, retryCount, _, _)) =>
+          log.debug("msg=Evt RetryScheduled pipelineId={} retryCount={}", r.pipelineId, retryCount)
+          MetricsReporter.recordRetryScheduled(pipelineId, error.code, retryCount)
+          r.copy(retryCount = retryCount)
 
-        case BatchTimedOut(pipelineId, batchId, timeoutMs, _) =>
-          state match {
-            case r: RunningState =>
-              log.warn("msg=Evt BatchTimedOut pipelineId={} batchId={} timeoutMs={}", r.pipelineId, batchId, timeoutMs)
-              MetricsReporter.recordBatchTimeout(pipelineId, batchId)
-              r.copy(activeBatchId = None)
-            case s               => s
-          }
+        case (r: RunningState, BatchTimedOut(pipelineId, batchId, timeoutMs, _)) =>
+          log.warn("msg=Evt BatchTimedOut pipelineId={} batchId={} timeoutMs={}", r.pipelineId, batchId, timeoutMs)
+          MetricsReporter.recordBatchTimeout(pipelineId, batchId)
+          r.copy(activeBatchId = None)
 
-        case PipelineStopped(_, reason, finalMetrics, ts) =>
-          val r        = state.asInstanceOf[RunningState]
+        // RunningState → StoppedState
+        case (r: RunningState, PipelineStopped(_, reason, finalMetrics, ts)) =>
           log.debug("msg=Evt PipelineStopped pipelineId={} reason={}", r.pipelineId, reason)
           val newState = StoppedState(
             pipelineId = r.pipelineId,
@@ -188,8 +195,8 @@ object PipelineAggregate {
           MetricsReporter.recordStateTransition(r.pipelineId, state, newState)
           newState
 
-        case PipelinePaused(_, reason, ts) =>
-          val r        = state.asInstanceOf[RunningState]
+        // RunningState → PausedState
+        case (r: RunningState, PipelinePaused(_, reason, ts)) =>
           log.debug("msg=Evt PipelinePaused pipelineId={} reason={}", r.pipelineId, reason)
           val newState = PausedState(
             pipelineId = r.pipelineId,
@@ -204,8 +211,8 @@ object PipelineAggregate {
           MetricsReporter.recordStateTransition(r.pipelineId, state, newState)
           newState
 
-        case PipelineResumed(_, ts) =>
-          val p        = state.asInstanceOf[PausedState]
+        // PausedState → RunningState
+        case (p: PausedState, PipelineResumed(_, ts)) =>
           log.debug("msg=Evt PipelineResumed pipelineId={}", p.pipelineId)
           val newState = RunningState(
             pipelineId = p.pipelineId,
@@ -222,8 +229,8 @@ object PipelineAggregate {
           MetricsReporter.recordStateTransition(p.pipelineId, state, newState)
           newState
 
-        case PipelineFailed(_, error, ts) =>
-          val r        = state.asInstanceOf[RunningState]
+        // RunningState → FailedState
+        case (r: RunningState, PipelineFailed(_, error, ts)) =>
           log.error("msg=Evt PipelineFailed pipelineId={} code={} message={}", r.pipelineId, error.code, error.message)
           MetricsReporter.recordBatchFailed(r.pipelineId, error.code)
           val newState = FailedState(
@@ -237,8 +244,8 @@ object PipelineAggregate {
           MetricsReporter.recordStateTransition(r.pipelineId, state, newState)
           newState
 
-        case PipelineReset(_, ts) =>
-          val f = state.asInstanceOf[FailedState]
+        // FailedState → ConfiguredState
+        case (f: FailedState, PipelineReset(_, ts)) =>
           log.info("msg=Evt PipelineReset pipelineId={}", f.pipelineId)
           ConfiguredState(
             pipelineId = f.pipelineId,
@@ -248,21 +255,27 @@ object PipelineAggregate {
             createdAt = ts,
           )
 
-        case ConfigUpdated(_, newConfig, _) =>
-          state match {
-            case c: ConfiguredState =>
-              log.debug("msg=Evt ConfigUpdated pipelineId={}", c.pipelineId)
-              c.copy(config = newConfig)
-            case s: StoppedState    =>
-              log.debug("msg=Evt ConfigUpdated (stopped) pipelineId={}", s.pipelineId)
-              s.copy(config = newConfig)
-            case s                  => s
-          }
+        // Config updates (allowed in ConfiguredState and StoppedState)
+        case (c: ConfiguredState, ConfigUpdated(_, newConfig, _)) =>
+          log.debug("msg=Evt ConfigUpdated pipelineId={}", c.pipelineId)
+          c.copy(config = newConfig)
 
-        case other =>
-          // No state change
-          log.debug("msg=Evt ignored type={}", other.getClass.getSimpleName)
-          state
+        case (s: StoppedState, ConfigUpdated(_, newConfig, _)) =>
+          log.debug("msg=Evt ConfigUpdated (stopped) pipelineId={}", s.pipelineId)
+          s.copy(config = newConfig)
+
+        // Invalid state transitions - log warning but don't crash
+        case (currentState, event) =>
+          log.warn(
+            "msg=Invalid state transition pipelineId={} currentState={} event={}",
+            event match {
+              case e: Event => e.pipelineId
+              case _ => "unknown"
+            },
+            currentState.getClass.getSimpleName,
+            event.getClass.getSimpleName
+          )
+          currentState // Return current state unchanged
       }
   }
 }
