@@ -110,25 +110,47 @@ This starts:
 docker-compose ps
 ```
 
-### **3. Compile the Project**
+### **3. Initialize Cassandra**
+
+Create the required keyspaces for event sourcing:
+
+```bash
+cd docker/cassandra-init
+./init-cassandra.sh
+```
+
+This will create:
+- `dataflow_journal` - Event store for Pekko Persistence
+- `dataflow_snapshot` - Snapshot store
+
+**Note:** Tables will be auto-created by the application on first run.
+
+**Manual initialization (alternative):**
+```bash
+docker exec -i dataflow-cassandra cqlsh < docker/cassandra-init/01-init-keyspaces.cql
+```
+
+See [docker/cassandra-init/README.md](docker/cassandra-init/README.md) for more details.
+
+### **4. Compile the Project**
 
 ```bash
 sbt compile
 ```
 
-### **4. Run Tests** (Coming Soon)
+### **5. Run Tests** (Coming Soon)
 
 ```bash
 sbt test
 ```
 
-### **5. Build Docker Images** (Coming Soon)
+### **6. Build Docker Images** (Coming Soon)
 
 ```bash
 sbt docker:publishLocal
 ```
 
-### **6. Start the API Server**
+### **7. Start the API Server**
 
 ```bash
 sbt "project dataflowApi" run
@@ -395,6 +417,92 @@ This is a learning project demonstrating production-grade distributed systems pa
 3. Update documentation
 4. Use feature branches
 5. Submit pull requests
+
+---
+
+## 🔧 **Troubleshooting**
+
+### **Cassandra Errors**
+
+**Error: `Invalid keyspace dataflow_journal`**
+
+This means the Cassandra keyspaces haven't been initialized.
+
+**Solution:**
+```bash
+cd docker/cassandra-init
+./init-cassandra.sh
+```
+
+**Error: `Connection refused` to Cassandra**
+
+Cassandra isn't running or hasn't started yet.
+
+**Solution:**
+```bash
+# Check if Cassandra is running
+docker ps | grep cassandra
+
+# Start Cassandra if not running
+cd docker && docker-compose up -d cassandra
+
+# Wait for Cassandra to be ready (takes 30-60 seconds)
+docker logs dataflow-cassandra
+```
+
+**Error: `NoHostAvailableException`**
+
+The application can't connect to Cassandra.
+
+**Solution:**
+1. Verify Cassandra is running: `docker ps | grep cassandra`
+2. Check connectivity: `docker exec dataflow-cassandra cqlsh -e "SELECT now() FROM system.local"`
+3. Ensure port 9042 is accessible
+4. Check `application.conf` for correct Cassandra host
+
+### **API Server Errors**
+
+**Error: `Address already in use`**
+
+Port 8080 is already occupied.
+
+**Solution:**
+```bash
+# Find process using port 8080
+lsof -i :8080
+
+# Change port via environment variable
+API_PORT=8081 sbt "project dataflowApi" run
+```
+
+**Error: `ActorSystem terminated`**
+
+Usually indicates a critical initialization error.
+
+**Solution:**
+1. Check logs for the root cause
+2. Ensure Cassandra is initialized
+3. Verify all required services are running
+
+### **Build Errors**
+
+**Error: `sbt: command not found`**
+
+SBT isn't installed.
+
+**Solution:**
+```bash
+# Install SBT (example for Ubuntu/Debian)
+echo "deb https://repo.scala-sbt.org/scalasbt/debian all main" | sudo tee /etc/apt/sources.list.d/sbt.list
+curl -sL "https://keyserver.ubuntu.com/pks/lookup?op=get&search=0x2EE0EA64E40A89B84B2DF73499E82A75642AC823" | sudo apt-key add
+sudo apt-get update
+sudo apt-get install sbt
+```
+
+For more troubleshooting, see:
+- [Cassandra Initialization README](docker/cassandra-init/README.md)
+- [API Documentation](docs/API_DOCUMENTATION.md)
+- [Sprint Planning](docs/SPRINT_PLANNING.md)
 
 ---
 
