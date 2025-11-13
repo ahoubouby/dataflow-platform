@@ -3,6 +3,7 @@ package com.dataflow.api
 import com.dataflow.aggregates.PipelineAggregate
 import com.dataflow.api.services.PipelineService
 import com.dataflow.domain.commands.Command
+import kamon.Kamon
 import org.apache.pekko.actor.typed.ActorSystem
 import org.apache.pekko.actor.typed.scaladsl.Behaviors
 import org.apache.pekko.cluster.sharding.typed.scaladsl.{ClusterSharding, Entity}
@@ -18,6 +19,9 @@ import scala.util.{Failure, Success}
  * Sets up cluster sharding and starts the HTTP server.
  */
 object ApiMain extends App {
+
+  // Initialize Kamon metrics and monitoring
+  Kamon.init()
 
   // Create root actor system
   val rootBehavior = Behaviors.setup[Nothing] { context =>
@@ -59,6 +63,7 @@ object ApiMain extends App {
     // Register shutdown hook
     sys.addShutdownHook {
       context.log.info("Shutting down DataFlow Platform API...")
+      Kamon.stop()
       system.terminate()
     }
 

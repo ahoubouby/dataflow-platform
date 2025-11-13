@@ -297,6 +297,7 @@ lazy val dataflowApi = (project in file("dataflow-api"))
         testDependencies ++
         httpDependencies ++
         validationDependencies ++
+        metricsDependencies ++
         Seq(
           // CORS Support (still uses Akka naming)
           "ch.megard" %% "akka-http-cors" % "1.2.0",
