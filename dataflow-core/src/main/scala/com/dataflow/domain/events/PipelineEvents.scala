@@ -20,13 +20,11 @@ final case class PipelineCreated(
   pipelineId: String,
   name: String,
   description: String,
-  sourceConfig: SourceConfig,
-  transformConfigs: List[TransformConfig],
-  sinkConfig: SinkConfig,
+  config: PipelineConfig,
   timestamp: Instant) extends Event {
 
   override def tags: Set[String] =
-    super.tags ++ Set(s"source-${sourceConfig.sourceType}", s"sink-${sinkConfig.sinkType}")
+    super.tags ++ Set(s"source-${config.source.sourceType}", s"sink-${config.sink.sinkType}")
 }
 
 final case class PipelineStarted(

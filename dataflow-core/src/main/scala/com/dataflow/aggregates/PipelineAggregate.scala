@@ -101,13 +101,13 @@ object PipelineAggregate {
   private val eventHandler: (State, Event) => State = {
     (state, event) =>
       event match {
-        case PipelineCreated(id, name, desc, source, transforms, sink, ts) =>
+        case PipelineCreated(id, name, desc, config, ts) =>
           log.debug("msg=Evt PipelineCreated id={} name='{}'", id, name)
           ConfiguredState(
             pipelineId = id,
             name = name,
             description = desc,
-            config = PipelineConfig(source, transforms, sink),
+            config = config,
             createdAt = ts,
           )
 

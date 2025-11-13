@@ -24,12 +24,12 @@ object EmptyStateHandler {
     import PipelineValidators._
 
     command match {
-      case cmd @ CreatePipeline(id, name, desc, source, transforms, sink, replyTo) =>
+      case cmd @ CreatePipeline(id, name, desc, config, replyTo) =>
         validate(cmd) match {
           case VSuccess             =>
             log.info("msg=Create pipeline id={} name='{}'", id, name)
             Effect
-              .persist(PipelineCreated(id, name, desc, source, transforms, sink, Instant.now()))
+              .persist(PipelineCreated(id, name, desc, config, Instant.now()))
               .thenReply(replyTo)(state => StatusReply.success(state))
           case VFailure(violations) =>
             val err = ValidationHelper.formatViolations(violations)

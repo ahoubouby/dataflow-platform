@@ -24,9 +24,7 @@ final case class CreatePipeline(
   pipelineId: String,
   name: String,
   description: String,
-  sourceConfig: SourceConfig,
-  transformConfigs: List[TransformConfig],
-  sinkConfig: SinkConfig,
+  config: PipelineConfig,
   replyTo: ActorRef[StatusReply[State]]) extends Command with CommandWithReply[StatusReply[State]]
 
 /**

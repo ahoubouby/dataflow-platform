@@ -39,6 +39,12 @@ class PipelineService(implicit system: ActorSystem[_], ec: ExecutionContext) {
   def createPipeline(request: CreatePipelineRequest): Future[Either[String, CreatePipelineResponse]] = {
     val pipelineId = UUID.randomUUID().toString
 
+    val config = PipelineConfig(
+      source = request.source,
+      transforms = request.transforms,
+      sink = request.sink
+    )
+
     val entity = getPipelineEntity(pipelineId)
 
     entity
@@ -46,9 +52,7 @@ class PipelineService(implicit system: ActorSystem[_], ec: ExecutionContext) {
         pipelineId = pipelineId,
         name = request.name,
         description = request.description,
-        sourceConfig = request.source,
-        transformConfigs = request.transforms,
-        sinkConfig = request.sink,
+        config = config,
         replyTo = replyTo
       ))
       .map {
