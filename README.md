@@ -64,10 +64,10 @@ DataFlow Platform is a **horizontally scalable, event-sourced data pipeline orch
 | Module | Purpose | Status |
 |--------|---------|--------|
 | **dataflow-core** | Event-sourced aggregates, domain models, cluster setup | ✅ Implemented |
-| **dataflow-sources** | Data ingestion (Kafka, Files, APIs, Databases) | 🚧 Planned |
-| **dataflow-transforms** | Data transformation (Filter, Map, Aggregate, Join) | 🚧 Planned |
-| **dataflow-sinks** | Data output (Kafka, Files, Databases, Elasticsearch) | 🚧 Planned |
-| **dataflow-api** | HTTP REST API and WebSocket management interface | 🚧 Planned |
+| **dataflow-sources** | Data ingestion (Kafka, Files, APIs, Databases) | ✅ Implemented |
+| **dataflow-transforms** | Data transformation (Filter, Map, Aggregate, Join) | ✅ Implemented |
+| **dataflow-sinks** | Data output (Kafka, Files, Databases, Elasticsearch) | ✅ Implemented |
+| **dataflow-api** | HTTP REST API and WebSocket management interface | ✅ Implemented |
 | **dataflow-projections** | CQRS read models (Status, Metrics, Audit logs) | 🚧 Planned |
 
 ---
@@ -128,6 +128,58 @@ sbt test
 sbt docker:publishLocal
 ```
 
+### **6. Start the API Server**
+
+```bash
+sbt "project dataflowApi" run
+```
+
+The API server will start on `http://localhost:8080`.
+
+**API Endpoints:**
+- Health check: `GET /health`
+- Create pipeline: `POST /api/v1/pipelines`
+- List pipelines: `GET /api/v1/pipelines`
+- Get pipeline: `GET /api/v1/pipelines/{id}`
+- Start pipeline: `POST /api/v1/pipelines/{id}/start`
+- Stop pipeline: `POST /api/v1/pipelines/{id}/stop`
+- Pause pipeline: `POST /api/v1/pipelines/{id}/pause`
+- Resume pipeline: `POST /api/v1/pipelines/{id}/resume`
+- Get metrics: `GET /api/v1/pipelines/{id}/metrics`
+- Get health: `GET /api/v1/pipelines/{id}/health`
+- WebSocket updates: `WS /api/v1/ws/pipelines/{id}`
+
+**Quick Example:**
+
+```bash
+# Create a pipeline
+curl -X POST http://localhost:8080/api/v1/pipelines \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "My Pipeline",
+    "description": "Test pipeline",
+    "sourceConfig": {
+      "sourceType": "file",
+      "connectionString": "/data/input.csv",
+      "batchSize": 100
+    },
+    "transformConfigs": [],
+    "sinkConfig": {
+      "sinkType": "console",
+      "connectionString": "",
+      "batchSize": 10
+    }
+  }'
+
+# Start the pipeline
+curl -X POST http://localhost:8080/api/v1/pipelines/{pipeline-id}/start
+
+# Get metrics
+curl http://localhost:8080/api/v1/pipelines/{pipeline-id}/metrics
+```
+
+See [API_DOCUMENTATION.md](docs/API_DOCUMENTATION.md) for complete API reference.
+
 ---
 
 ## 📚 **Documentation**
@@ -137,6 +189,7 @@ sbt docker:publishLocal
 | [ARCHITECTURE_AND_ROADMAP.md](docs/ARCHITECTURE_AND_ROADMAP.md) | Complete architecture guide with 10-phase implementation roadmap |
 | [CORE_ANALYSIS_AND_REFACTORING.md](docs/CORE_ANALYSIS_AND_REFACTORING.md) | Core module analysis with refactoring recommendations |
 | [SPRINT_PLANNING.md](docs/SPRINT_PLANNING.md) | Sprint-based development plan with tasks and timelines |
+| [API_DOCUMENTATION.md](docs/API_DOCUMENTATION.md) | **Complete REST API reference and usage examples** |
 | [dataflow-core/README.md](dataflow-core/README.md) | Core module documentation |
 
 ---
