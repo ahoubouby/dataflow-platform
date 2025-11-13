@@ -2,7 +2,7 @@ package com.dataflow.api.services
 
 import com.dataflow.domain.commands._
 import com.dataflow.domain.models._
-import com.dataflow.domain.state.State
+import com.dataflow.domain.state._
 import com.dataflow.api.models._
 import org.apache.pekko.actor.typed.{ActorRef, ActorSystem}
 import org.apache.pekko.cluster.sharding.typed.scaladsl.{ClusterSharding, Entity, EntityRef}
@@ -38,13 +38,6 @@ class PipelineService(implicit system: ActorSystem[_], ec: ExecutionContext) {
    */
   def createPipeline(request: CreatePipelineRequest): Future[Either[String, CreatePipelineResponse]] = {
     val pipelineId = UUID.randomUUID().toString
-    val config = PipelineConfig(
-      name = request.name,
-      description = request.description,
-      sourceConfig = request.sourceConfig,
-      transformConfigs = request.transformConfigs,
-      sinkConfig = request.sinkConfig
-    )
 
     val entity = getPipelineEntity(pipelineId)
 
@@ -53,9 +46,9 @@ class PipelineService(implicit system: ActorSystem[_], ec: ExecutionContext) {
         pipelineId = pipelineId,
         name = request.name,
         description = request.description,
-        sourceConfig = request.sourceConfig,
-        transformConfigs = request.transformConfigs,
-        sinkConfig = request.sinkConfig,
+        sourceConfig = request.source,
+        transformConfigs = request.transforms,
+        sinkConfig = request.sink,
         replyTo = replyTo
       ))
       .map {
@@ -84,7 +77,7 @@ class PipelineService(implicit system: ActorSystem[_], ec: ExecutionContext) {
       .ask[State](replyTo => GetState(pipelineId, replyTo))
       .map { state =>
         state match {
-          case State.Empty =>
+          case EmptyState =>
             Left(s"Pipeline not found: $pipelineId")
           case _ =>
             Right(ApiModelConverters.stateToDetails(state, pipelineId))
@@ -118,11 +111,9 @@ class PipelineService(implicit system: ActorSystem[_], ec: ExecutionContext) {
       case Right(current) =>
         // Build new config with updates
         val newConfig = PipelineConfig(
-          name = request.name.getOrElse(current.name),
-          description = request.description.getOrElse(current.description),
-          sourceConfig = request.sourceConfig.getOrElse(current.sourceConfig),
-          transformConfigs = request.transformConfigs.getOrElse(current.transformConfigs),
-          sinkConfig = request.sinkConfig.getOrElse(current.sinkConfig)
+          source = request.source.getOrElse(current.source),
+          transforms = request.transforms.getOrElse(current.transforms),
+          sink = request.sink.getOrElse(current.sink)
         )
 
         val entity = getPipelineEntity(pipelineId)

@@ -28,14 +28,14 @@ PIPELINE_RESPONSE=$(curl -s -X POST "$API_BASE_URL/api/v1/pipelines" \
   -d '{
     "name": "User Events Processing Pipeline",
     "description": "Processes user events from CSV file to console",
-    "sourceConfig": {
+    "source": {
       "sourceType": "file",
       "connectionString": "/tmp/users.csv",
       "batchSize": 100,
       "pollIntervalMs": 1000,
       "options": {}
     },
-    "transformConfigs": [
+    "transforms": [
       {
         "transformType": "filter",
         "config": {
@@ -50,7 +50,7 @@ PIPELINE_RESPONSE=$(curl -s -X POST "$API_BASE_URL/api/v1/pipelines" \
         }
       }
     ],
-    "sinkConfig": {
+    "sink": {
       "sinkType": "console",
       "connectionString": "",
       "batchSize": 10

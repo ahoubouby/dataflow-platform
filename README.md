@@ -158,13 +158,13 @@ curl -X POST http://localhost:8080/api/v1/pipelines \
   -d '{
     "name": "My Pipeline",
     "description": "Test pipeline",
-    "sourceConfig": {
+    "source": {
       "sourceType": "file",
       "connectionString": "/data/input.csv",
       "batchSize": 100
     },
-    "transformConfigs": [],
-    "sinkConfig": {
+    "transforms": [],
+    "sink": {
       "sinkType": "console",
       "connectionString": "",
       "batchSize": 10

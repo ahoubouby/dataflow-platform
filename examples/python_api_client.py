@@ -41,9 +41,9 @@ class DataFlowClient:
         payload = {
             "name": name,
             "description": description,
-            "sourceConfig": source_config,
-            "transformConfigs": transform_configs,
-            "sinkConfig": sink_config
+            "source": source_config,
+            "transforms": transform_configs,
+            "sink": sink_config
         }
 
         response = requests.post(

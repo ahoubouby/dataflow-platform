@@ -4,12 +4,10 @@ import com.dataflow.api.routes.{PipelineRoutes, WebSocketRoutes}
 import com.dataflow.api.services.PipelineService
 import org.apache.pekko.actor.typed.ActorSystem
 import org.apache.pekko.http.scaladsl.Http
-import org.apache.pekko.http.scaladsl.model.{HttpResponse, StatusCodes}
-import org.apache.pekko.http.scaladsl.server.Directives._
-import org.apache.pekko.http.scaladsl.server.{ExceptionHandler, RejectionHandler, Route}
+import org.apache.pekko.http.scaladsl.model.{HttpMethods, HttpResponse, StatusCodes}
 import org.apache.pekko.http.scaladsl.model.headers._
-import ch.megard.akka.http.cors.scaladsl.CorsDirectives._
-import ch.megard.akka.http.cors.scaladsl.settings.CorsSettings
+import org.apache.pekko.http.scaladsl.server.Directives._
+import org.apache.pekko.http.scaladsl.server.{Directive0, ExceptionHandler, RejectionHandler, Route}
 import com.dataflow.api.models.ErrorResponse
 import com.dataflow.api.models.JsonProtocol._
 import org.apache.pekko.http.scaladsl.marshallers.sprayjson.SprayJsonSupport._
@@ -28,16 +26,19 @@ class HttpServer(implicit system: ActorSystem[_], ec: ExecutionContext) {
   private val pipelineRoutes = new PipelineRoutes(pipelineService)
   private val webSocketRoutes = new WebSocketRoutes(pipelineService)
 
-  // CORS settings
-  private val corsSettings = CorsSettings.defaultSettings
-    .withAllowedOrigins(ch.megard.akka.http.cors.scaladsl.model.HttpOriginRange.*)
-    .withAllowedMethods(List(
-      org.apache.pekko.http.scaladsl.model.HttpMethods.GET,
-      org.apache.pekko.http.scaladsl.model.HttpMethods.POST,
-      org.apache.pekko.http.scaladsl.model.HttpMethods.PUT,
-      org.apache.pekko.http.scaladsl.model.HttpMethods.DELETE,
-      org.apache.pekko.http.scaladsl.model.HttpMethods.OPTIONS
-    ))
+  /**
+   * Manual CORS implementation for Pekko HTTP
+   */
+  private def corsHandler: Directive0 = {
+    respondWithHeaders(
+      `Access-Control-Allow-Origin`.*,
+      `Access-Control-Allow-Methods`(HttpMethods.GET, HttpMethods.POST, HttpMethods.PUT, HttpMethods.DELETE, HttpMethods.OPTIONS),
+      `Access-Control-Allow-Headers`("Content-Type", "Authorization", "X-Requested-With"),
+      `Access-Control-Max-Age`(1728000) // 20 days
+    ) & options {
+      complete(HttpResponse(StatusCodes.OK))
+    }
+  }
 
   // Exception handler
   private implicit val exceptionHandler: ExceptionHandler = ExceptionHandler {
@@ -71,7 +72,7 @@ class HttpServer(implicit system: ActorSystem[_], ec: ExecutionContext) {
   private val allRoutes: Route = {
     handleExceptions(exceptionHandler) {
       handleRejections(rejectionHandler) {
-        cors(corsSettings) {
+        corsHandler {
           concat(
             // Health check endpoint
             path("health") {

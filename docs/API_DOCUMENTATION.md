@@ -90,7 +90,7 @@ Create a new data pipeline.
 {
   "name": "My Pipeline",
   "description": "Processes user events from Kafka to Elasticsearch",
-  "sourceConfig": {
+  "source": {
     "sourceType": "kafka",
     "connectionString": "localhost:9092",
     "batchSize": 100,
@@ -100,7 +100,7 @@ Create a new data pipeline.
       "groupId": "pipeline-1"
     }
   },
-  "transformConfigs": [
+  "transforms": [
     {
       "transformType": "filter",
       "config": {
@@ -115,7 +115,7 @@ Create a new data pipeline.
       }
     }
   ],
-  "sinkConfig": {
+  "sink": {
     "sinkType": "elasticsearch",
     "connectionString": "localhost:9200",
     "batchSize": 50
@@ -174,9 +174,9 @@ Get detailed information about a specific pipeline.
   "name": "My Pipeline",
   "description": "Processes user events",
   "status": "running",
-  "sourceConfig": { ... },
-  "transformConfigs": [ ... ],
-  "sinkConfig": { ... },
+  "source": { ... },
+  "transforms": [ ... ],
+  "sink": { ... },
   "metrics": {
     "totalRecordsProcessed": 15000,
     "totalRecordsFailed": 5,
@@ -210,7 +210,7 @@ Update pipeline configuration (only when stopped).
 {
   "name": "Updated Pipeline Name",
   "description": "Updated description",
-  "sinkConfig": {
+  "sink": {
     "sinkType": "file",
     "connectionString": "/data/output",
     "batchSize": 100
@@ -456,13 +456,13 @@ curl -X POST http://localhost:8080/api/v1/pipelines \
   -d '{
     "name": "User Events Pipeline",
     "description": "Process user events",
-    "sourceConfig": {
+    "source": {
       "sourceType": "file",
       "connectionString": "/data/users.csv",
       "batchSize": 100
     },
-    "transformConfigs": [],
-    "sinkConfig": {
+    "transforms": [],
+    "sink": {
       "sinkType": "console",
       "connectionString": "",
       "batchSize": 10

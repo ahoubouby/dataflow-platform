@@ -1,7 +1,7 @@
 package com.dataflow.api.models
 
 import com.dataflow.domain.models._
-import com.dataflow.domain.state.State
+import com.dataflow.domain.state._
 import java.time.Instant
 
 // ============================================
@@ -14,9 +14,9 @@ import java.time.Instant
 final case class CreatePipelineRequest(
   name: String,
   description: String,
-  sourceConfig: SourceConfig,
-  transformConfigs: List[TransformConfig],
-  sinkConfig: SinkConfig
+  source: SourceConfig,
+  transforms: List[TransformConfig],
+  sink: SinkConfig
 )
 
 /**
@@ -25,9 +25,9 @@ final case class CreatePipelineRequest(
 final case class UpdatePipelineRequest(
   name: Option[String],
   description: Option[String],
-  sourceConfig: Option[SourceConfig],
-  transformConfigs: Option[List[TransformConfig]],
-  sinkConfig: Option[SinkConfig]
+  source: Option[SourceConfig],
+  transforms: Option[List[TransformConfig]],
+  sink: Option[SinkConfig]
 )
 
 /**
@@ -80,9 +80,9 @@ final case class PipelineDetails(
   name: String,
   description: String,
   status: String,
-  sourceConfig: SourceConfig,
-  transformConfigs: List[TransformConfig],
-  sinkConfig: SinkConfig,
+  source: SourceConfig,
+  transforms: List[TransformConfig],
+  sink: SinkConfig,
   metrics: Option[PipelineMetrics],
   checkpoint: Option[Checkpoint],
   createdAt: Instant,
@@ -146,83 +146,83 @@ object ApiModelConverters {
    */
   def stateToDetails(state: State, pipelineId: String): PipelineDetails = {
     state match {
-      case state: State.Configured =>
+      case state: ConfiguredState =>
         PipelineDetails(
           pipelineId = pipelineId,
-          name = state.config.name,
-          description = state.config.description,
+          name = state.name,
+          description = state.description,
           status = "configured",
-          sourceConfig = state.config.sourceConfig,
-          transformConfigs = state.config.transformConfigs,
-          sinkConfig = state.config.sinkConfig,
+          source = state.config.source,
+          transforms = state.config.transforms,
+          sink = state.config.sink,
           metrics = None,
           checkpoint = None,
           createdAt = state.createdAt,
-          updatedAt = state.updatedAt
+          updatedAt = state.createdAt // ConfiguredState only has createdAt
         )
 
-      case state: State.Running =>
+      case state: RunningState =>
         PipelineDetails(
           pipelineId = pipelineId,
-          name = state.config.name,
-          description = state.config.description,
+          name = state.name,
+          description = state.description,
           status = "running",
-          sourceConfig = state.config.sourceConfig,
-          transformConfigs = state.config.transformConfigs,
-          sinkConfig = state.config.sinkConfig,
+          source = state.config.source,
+          transforms = state.config.transforms,
+          sink = state.config.sink,
           metrics = Some(state.metrics),
           checkpoint = Some(state.checkpoint),
-          createdAt = state.createdAt,
-          updatedAt = state.updatedAt
+          createdAt = state.startedAt, // Use startedAt as createdAt
+          updatedAt = state.metrics.lastProcessedAt.getOrElse(state.startedAt)
         )
 
-      case state: State.Paused =>
+      case state: PausedState =>
         PipelineDetails(
           pipelineId = pipelineId,
-          name = state.config.name,
-          description = state.config.description,
+          name = state.name,
+          description = state.description,
           status = "paused",
-          sourceConfig = state.config.sourceConfig,
-          transformConfigs = state.config.transformConfigs,
-          sinkConfig = state.config.sinkConfig,
+          source = state.config.source,
+          transforms = state.config.transforms,
+          sink = state.config.sink,
           metrics = Some(state.metrics),
           checkpoint = Some(state.checkpoint),
-          createdAt = state.createdAt,
-          updatedAt = state.updatedAt
+          createdAt = state.pausedAt, // Best approximation
+          updatedAt = state.pausedAt
         )
 
-      case state: State.Stopped =>
+      case state: StoppedState =>
         PipelineDetails(
           pipelineId = pipelineId,
-          name = state.config.name,
-          description = state.config.description,
+          name = state.name,
+          description = state.description,
           status = "stopped",
-          sourceConfig = state.config.sourceConfig,
-          transformConfigs = state.config.transformConfigs,
-          sinkConfig = state.config.sinkConfig,
-          metrics = Some(state.metrics),
-          checkpoint = Some(state.checkpoint),
-          createdAt = state.createdAt,
-          updatedAt = state.updatedAt
+          source = state.config.source,
+          transforms = state.config.transforms,
+          sink = state.config.sink,
+          metrics = Some(state.finalMetrics),
+          checkpoint = Some(state.lastCheckpoint),
+          createdAt = state.stoppedAt, // Best approximation
+          updatedAt = state.stoppedAt
         )
 
-      case state: State.Failed =>
+      case state: FailedState =>
         PipelineDetails(
           pipelineId = pipelineId,
-          name = state.config.name,
-          description = state.config.description,
+          name = state.name,
+          description = state.description,
           status = "failed",
-          sourceConfig = state.config.sourceConfig,
-          transformConfigs = state.config.transformConfigs,
-          sinkConfig = state.config.sinkConfig,
-          metrics = Some(state.metrics),
-          checkpoint = Some(state.checkpoint),
-          createdAt = state.createdAt,
-          updatedAt = state.updatedAt
+          source = SourceConfig(SourceType.File, "", 0), // FailedState doesn't have config
+          transforms = List.empty,
+          sink = SinkConfig("", "", 0),
+          metrics = None,
+          checkpoint = state.lastCheckpoint,
+          createdAt = state.failedAt,
+          updatedAt = state.failedAt
         )
 
-      case State.Empty =>
-        throw new IllegalStateException("Cannot convert Empty state to PipelineDetails")
+      case EmptyState =>
+        throw new IllegalStateException("Cannot convert EmptyState to PipelineDetails")
     }
   }
 
@@ -231,58 +231,58 @@ object ApiModelConverters {
    */
   def stateToSummary(state: State, pipelineId: String): PipelineSummary = {
     state match {
-      case state: State.Configured =>
+      case state: ConfiguredState =>
         PipelineSummary(
           pipelineId = pipelineId,
-          name = state.config.name,
-          description = state.config.description,
+          name = state.name,
+          description = state.description,
           status = "configured",
           createdAt = state.createdAt,
-          updatedAt = state.updatedAt
+          updatedAt = state.createdAt
         )
 
-      case state: State.Running =>
+      case state: RunningState =>
         PipelineSummary(
           pipelineId = pipelineId,
-          name = state.config.name,
-          description = state.config.description,
+          name = state.name,
+          description = state.description,
           status = "running",
-          createdAt = state.createdAt,
-          updatedAt = state.updatedAt
+          createdAt = state.startedAt,
+          updatedAt = state.metrics.lastProcessedAt.getOrElse(state.startedAt)
         )
 
-      case state: State.Paused =>
+      case state: PausedState =>
         PipelineSummary(
           pipelineId = pipelineId,
-          name = state.config.name,
-          description = state.config.description,
+          name = state.name,
+          description = state.description,
           status = "paused",
-          createdAt = state.createdAt,
-          updatedAt = state.updatedAt
+          createdAt = state.pausedAt,
+          updatedAt = state.pausedAt
         )
 
-      case state: State.Stopped =>
+      case state: StoppedState =>
         PipelineSummary(
           pipelineId = pipelineId,
-          name = state.config.name,
-          description = state.config.description,
+          name = state.name,
+          description = state.description,
           status = "stopped",
-          createdAt = state.createdAt,
-          updatedAt = state.updatedAt
+          createdAt = state.stoppedAt,
+          updatedAt = state.stoppedAt
         )
 
-      case state: State.Failed =>
+      case state: FailedState =>
         PipelineSummary(
           pipelineId = pipelineId,
-          name = state.config.name,
-          description = state.config.description,
+          name = state.name,
+          description = state.description,
           status = "failed",
-          createdAt = state.createdAt,
-          updatedAt = state.updatedAt
+          createdAt = state.failedAt,
+          updatedAt = state.failedAt
         )
 
-      case State.Empty =>
-        throw new IllegalStateException("Cannot convert Empty state to PipelineSummary")
+      case EmptyState =>
+        throw new IllegalStateException("Cannot convert EmptyState to PipelineSummary")
     }
   }
 }
