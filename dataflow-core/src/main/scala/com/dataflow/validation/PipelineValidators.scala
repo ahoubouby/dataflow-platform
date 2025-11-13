@@ -85,7 +85,7 @@ object PipelineValidators {
   implicit val pipelineConfigValidator = validator[PipelineConfig] {
     config =>
       config.source is valid(sourceConfigValidator)
-      config.transforms is notEmpty
+      // Transforms can be empty (passthrough pipeline)
       config.transforms.each is valid(transformConfigValidator)
       config.sink is valid(sinkConfigValidator)
   }
@@ -97,10 +97,7 @@ object PipelineValidators {
     cmd =>
       cmd.name is valid(pipelineNameValidator)
       cmd.description.size should be <= 500
-      cmd.sourceConfig is valid(sourceConfigValidator)
-      cmd.transformConfigs is notEmpty
-      cmd.transformConfigs.each is valid(transformConfigValidator)
-      cmd.sinkConfig is valid(sinkConfigValidator)
+      cmd.config is valid(pipelineConfigValidator)
   }
 
   /**
