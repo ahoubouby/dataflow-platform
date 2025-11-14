@@ -257,6 +257,7 @@ lazy val dataflowTransforms = (project in file("dataflow-transforms"))
         testDependencies ++
         jsonDependencies ++
         validationDependencies ++
+        metricsDependencies ++  // ← Kamon for TransformMetricsReporter
         Seq(
           // JSON Schema Validation
           "com.github.java-json-tools" % "json-schema-validator" % "2.2.14",
@@ -278,6 +279,7 @@ lazy val dataflowSinks = (project in file("dataflow-sinks"))
         kafkaDependencies ++
         jsonDependencies ++
         databaseDependencies ++
+        metricsDependencies ++  // ← Kamon for SinkMetricsReporter
         Seq(
           // Additional Connectors
           "org.apache.pekko" %% "pekko-connectors-elasticsearch" % pekkoConnectorsVersion,
