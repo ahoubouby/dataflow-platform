@@ -5,7 +5,6 @@ import com.dataflow.domain.commands._
 import com.dataflow.domain.events._
 import com.dataflow.domain.models._
 import com.dataflow.domain.state._
-import com.dataflow.metrics.MetricsReporter
 import com.dataflow.recovery.{ErrorRecovery, TimeoutConfig}
 import org.apache.pekko.persistence.typed.{PersistenceId, RecoveryCompleted, SnapshotCompleted}
 import org.apache.pekko.persistence.typed.scaladsl.{EventSourcedBehavior, ReplyEffect, RetentionCriteria}
@@ -128,7 +127,6 @@ object PipelineAggregate {
             retryCount = 0,
             activeBatchId = None,
           )
-          MetricsReporter.recordStateTransition(cfg.pipelineId, state, newState)
           newState
 
         // StoppedState → RunningState (restart)
@@ -146,7 +144,6 @@ object PipelineAggregate {
             retryCount = 0,
             activeBatchId = None,
           )
-          MetricsReporter.recordStateTransition(stopped.pipelineId, state, newState)
           newState
 
         // RunningState batch events
@@ -155,9 +152,7 @@ object PipelineAggregate {
 
         case (r: RunningState, BatchProcessed(pipelineId, batchId, ok, ko, timeMs, _)) =>
           // Record batch processing metrics
-          MetricsReporter.recordBatchProcessed(pipelineId, ok, ko, timeMs)
           val newMetrics = r.metrics.incrementBatch(ok, ko, timeMs)
-          MetricsReporter.updatePipelineMetrics(pipelineId, newMetrics)
           r.copy(
             metrics = newMetrics,
             processedBatchIds = r.processedBatchIds + batchId,
@@ -166,17 +161,14 @@ object PipelineAggregate {
           )
 
         case (r: RunningState, CheckpointUpdated(pipelineId, checkpoint, _)) =>
-          MetricsReporter.recordCheckpointUpdate(pipelineId, checkpoint.offset)
           r.copy(checkpoint = checkpoint)
 
         case (r: RunningState, RetryScheduled(pipelineId, error, retryCount, _, _)) =>
           log.debug("msg=Evt RetryScheduled pipelineId={} retryCount={}", r.pipelineId, retryCount)
-          MetricsReporter.recordRetryScheduled(pipelineId, error.code, retryCount)
           r.copy(retryCount = retryCount)
 
         case (r: RunningState, BatchTimedOut(pipelineId, batchId, timeoutMs, _)) =>
           log.warn("msg=Evt BatchTimedOut pipelineId={} batchId={} timeoutMs={}", r.pipelineId, batchId, timeoutMs)
-          MetricsReporter.recordBatchTimeout(pipelineId, batchId)
           r.copy(activeBatchId = None)
 
         // RunningState → StoppedState
@@ -192,7 +184,6 @@ object PipelineAggregate {
             lastCheckpoint = r.checkpoint,
             finalMetrics = finalMetrics,
           )
-          MetricsReporter.recordStateTransition(r.pipelineId, state, newState)
           newState
 
         // RunningState → PausedState
@@ -208,7 +199,6 @@ object PipelineAggregate {
             checkpoint = r.checkpoint,
             metrics = r.metrics,
           )
-          MetricsReporter.recordStateTransition(r.pipelineId, state, newState)
           newState
 
         // PausedState → RunningState
@@ -226,13 +216,11 @@ object PipelineAggregate {
             retryCount = 0,
             activeBatchId = None,
           )
-          MetricsReporter.recordStateTransition(p.pipelineId, state, newState)
           newState
 
         // RunningState → FailedState
         case (r: RunningState, PipelineFailed(_, error, ts)) =>
           log.error("msg=Evt PipelineFailed pipelineId={} code={} message={}", r.pipelineId, error.code, error.message)
-          MetricsReporter.recordBatchFailed(r.pipelineId, error.code)
           val newState = FailedState(
             pipelineId = r.pipelineId,
             name = r.name,
@@ -241,7 +229,6 @@ object PipelineAggregate {
             failedAt = ts,
             lastCheckpoint = Some(r.checkpoint),
           )
-          MetricsReporter.recordStateTransition(r.pipelineId, state, newState)
           newState
 
         // FailedState → ConfiguredState
