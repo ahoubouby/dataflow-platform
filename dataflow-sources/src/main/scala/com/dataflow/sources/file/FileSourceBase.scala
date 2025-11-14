@@ -15,7 +15,6 @@ import com.dataflow.sources.{Source, SourceMetricsReporter}
 import com.dataflow.sources.models._
 import org.apache.pekko.{Done, NotUsed}
 import org.apache.pekko.actor.typed.{ActorRef, ActorSystem}
-import org.apache.pekko.cluster.sharding.typed.ShardingEnvelope
 import org.apache.pekko.stream.{KillSwitches, SystemMaterializer}
 import org.apache.pekko.stream.scaladsl.{FileIO, Framing, Keep, Sink, Source => PekkoSource}
 import org.apache.pekko.util.ByteString

@@ -5,7 +5,6 @@ import com.dataflow.domain.models.DataRecord
 import com.dataflow.sources.SourceMetricsReporter
 import org.apache.pekko.actor.typed.scaladsl.{ActorContext, Behaviors, TimerScheduler}
 import org.apache.pekko.actor.typed.{ActorRef, Behavior}
-import org.apache.pekko.cluster.sharding.typed.ShardingEnvelope
 import org.apache.pekko.pattern.StatusReply
 import org.slf4j.Logger
 

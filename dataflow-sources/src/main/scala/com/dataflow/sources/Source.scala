@@ -2,7 +2,7 @@ package com.dataflow.sources
 
 import scala.concurrent.Future
 
-import com.dataflow.domain.commands.Command
+
 import com.dataflow.domain.models.{DataRecord, SourceConfig, SourceType}
 import com.dataflow.sources.api.RestApiSource
 import com.dataflow.sources.database.JdbcSource
@@ -11,7 +11,7 @@ import com.dataflow.sources.kafka.KafkaSource
 import com.dataflow.sources.models.SourceState
 import org.apache.pekko.{Done, NotUsed}
 import org.apache.pekko.actor.typed.{ActorRef, ActorSystem}
-import org.apache.pekko.cluster.sharding.typed.ShardingEnvelope
+
 import org.apache.pekko.stream.scaladsl.{Source => PekkoSource}
 
 /**
@@ -57,18 +57,6 @@ trait Source {
    */
   def stream(): PekkoSource[DataRecord, NotUsed]
 
-  /**
-   * Start the source (begin reading data).
-   *
-   * This method:
-   * - Initializes connections to external systems
-   * - Starts the stream
-   * - Sends batched records to the pipeline
-   *
-   * @param pipelineShardRegion The pipeline shard region to send data to
-   * @return Future that completes when source is started
-   */
-  def start(pipelineShardRegion: ActorRef[ShardingEnvelope[Command]]): Future[Done]
 
   /**
    * Stop the source (stop reading data).
@@ -206,10 +194,6 @@ private class TestSourceAdapter(
     // For now, return empty source
     PekkoSource.empty[DataRecord] // .mapMaterializedValue(_ => Future.successful(Done))
 
-  override def start(pipelineShardRegion: ActorRef[ShardingEnvelope[Command]]): Future[Done] =
-    // Spawn TestSource actor
-    // testSource ! TestSource.Start
-    Future.successful(Done)
 
   override def stop(): Future[Done] =
     // testSource ! TestSource.Stop
