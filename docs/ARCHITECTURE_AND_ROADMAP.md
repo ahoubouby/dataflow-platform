@@ -80,7 +80,15 @@ A **horizontally scalable, event-sourced data pipeline platform** that:
 
 ### **Module 1: Core (dataflow-core)** ⭐ CURRENT ITERATION
 
-**Purpose**: Event-sourced aggregates and domain logic
+**Purpose**: Domain library - Event-sourced aggregates and pure domain logic
+
+**IMPORTANT**: This is a **library module**, not an application! It contains:
+- ✅ Domain models (events, commands, states)
+- ✅ Event-sourced aggregates (pure business logic)
+- ✅ Serialization markers
+- ❌ **NO** cluster dependencies
+- ❌ **NO** Cassandra client (only Pekko Persistence API)
+- ❌ **NO** cluster configuration (that belongs in dataflow-api)
 
 **Components**:
 ```
@@ -106,6 +114,20 @@ dataflow-core/
 │
 └── serialization/
     └── CborSerializable.scala        # Serialization marker
+```
+
+**Dependencies** (build.sbt):
+```scala
+libraryDependencies ++=
+  commonDependencies ++
+  testDependencies ++
+  Seq(
+    "org.apache.pekko" %% "pekko-persistence-typed"     % pekkoVersion,
+    "org.apache.pekko" %% "pekko-serialization-jackson" % pekkoVersion,
+    // Testing only
+    "org.apache.pekko" %% "pekko-persistence-testkit"   % pekkoVersion % Test,
+  ) ++
+  validationDependencies
 ```
 
 **Key Aggregate: PipelineAggregate**
@@ -348,9 +370,18 @@ class CassandraSink(
 
 ---
 
-### **Module 5: API (dataflow-api)** 🔜 ITERATION 5
+### **Module 5: API (dataflow-api)** ✅ IMPLEMENTED
 
-**Purpose**: HTTP API for pipeline management
+**Purpose**: **Application module** - Runs cluster, connects to Cassandra, provides HTTP API
+
+**IMPORTANT**: This is the **application module**, not a library! It contains:
+- ✅ **Cluster configuration** (remote.artery, seed-nodes)
+- ✅ **Cassandra persistence** (connection details, keyspaces)
+- ✅ **Cluster dependencies** (sharding, cluster-tools)
+- ✅ **Persistence dependencies** (Cassandra driver)
+- ✅ **HTTP REST API** (pipeline management)
+- ✅ **Execution orchestration** (PipelineEventListener, ExecutionOrchestrator)
+- ✅ **Metrics & monitoring** (Kamon)
 
 **Components**:
 ```
@@ -361,6 +392,13 @@ dataflow-api/
 │   ├── AdminRoutes.scala             # Admin operations
 │   └── WebSocketRoutes.scala         # Real-time updates
 │
+├── execution/                         # 🆕 Pipeline execution
+│   ├── PipelineExecutor.scala        # Runs actual pipelines (Source → Transform → Sink)
+│   ├── ExecutionOrchestrator.scala   # Manages executor lifecycle
+│   ├── PipelineEventListener.scala   # Reads events from Cassandra journal
+│   ├── TransformConfigMapper.scala   # Maps configs to transforms
+│   └── SinkFactory.scala             # Creates sink instances
+│
 ├── models/
 │   ├── PipelineDTO.scala             # Data transfer objects
 │   └── ApiResponses.scala            # API responses
@@ -368,8 +406,26 @@ dataflow-api/
 ├── validation/
 │   └── RequestValidator.scala        # Input validation
 │
-└── HttpServer.scala                  # HTTP server setup
+└── ApiMain.scala                      # Application entry point (cluster bootstrap)
 ```
+
+**Dependencies** (build.sbt):
+```scala
+libraryDependencies ++=
+  commonDependencies ++
+  httpDependencies ++
+  metricsDependencies ++         // Kamon
+  clusterDependencies ++         // ← API runs the cluster!
+  persistenceDependencies ++     // ← API connects to Cassandra!
+  ...
+```
+
+**Configuration** (application.conf):
+- ✅ Cluster configuration (pekko.cluster, pekko.remote.artery)
+- ✅ Cassandra connection (datastax-java-driver)
+- ✅ Persistence (pekko.persistence.cassandra)
+- ✅ Kamon metrics (kamon-local.conf)
+- ✅ Cluster management (cluster.conf)
 
 **API Endpoints**:
 ```

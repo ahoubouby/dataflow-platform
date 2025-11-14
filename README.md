@@ -61,14 +61,56 @@ DataFlow Platform is a **horizontally scalable, event-sourced data pipeline orch
 
 ## 📦 **Module Structure**
 
+### **Layered Architecture**
+
+The project follows a **clean layered architecture** with clear separation of concerns:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│ dataflow-api (APPLICATION LAYER)                            │
+│ - Cluster configuration & sharding                          │
+│ - Cassandra persistence & connection                        │
+│ - HTTP REST API & WebSocket                                 │
+│ - Pipeline execution orchestration                          │
+│ - Metrics & monitoring (Kamon)                              │
+└────────────────────┬────────────────────────────────────────┘
+                     │ depends on
+          ┌──────────┴──────────┬──────────────┐
+          ▼                     ▼              ▼
+┌─────────────────┐   ┌─────────────────┐   ┌─────────────────┐
+│ dataflow-sources│   │dataflow-transforms│ │ dataflow-sinks  │
+│ Kafka, File,    │   │ Filter, Map,    │   │ Kafka, File,    │
+│ API, Database   │   │ Aggregate, Join │   │ Database, Cloud │
+└────────┬────────┘   └────────┬────────┘   └────────┬────────┘
+         │ depends on          │ depends on          │ depends on
+         └─────────────────────┴─────────────────────┘
+                               ▼
+                    ┌─────────────────────┐
+                    │ dataflow-core       │
+                    │ (DOMAIN LIBRARY)    │
+                    │ - Events            │
+                    │ - Commands          │
+                    │ - Aggregates        │
+                    │ - State machines    │
+                    │ - NO cluster deps   │
+                    │ - NO Cassandra      │
+                    └─────────────────────┘
+```
+
 | Module | Purpose | Status |
 |--------|---------|--------|
-| **dataflow-core** | Event-sourced aggregates, domain models, cluster setup | ✅ Implemented |
+| **dataflow-core** | **Domain library**: Event-sourced aggregates, domain models (no cluster/Cassandra dependencies) | ✅ Implemented |
 | **dataflow-sources** | Data ingestion (Kafka, Files, APIs, Databases) | ✅ Implemented |
 | **dataflow-transforms** | Data transformation (Filter, Map, Aggregate, Join) | ✅ Implemented |
 | **dataflow-sinks** | Data output (Kafka, Files, Databases, Elasticsearch) | ✅ Implemented |
-| **dataflow-api** | HTTP REST API and WebSocket management interface | ✅ Implemented |
+| **dataflow-api** | **Application module**: Runs cluster, connects to Cassandra, HTTP API, execution orchestration | ✅ Implemented |
 | **dataflow-projections** | CQRS read models (Status, Metrics, Audit logs) | 🚧 Planned |
+
+**Key Architectural Principles:**
+- **dataflow-core** is a **library** (no cluster, no Cassandra client, pure domain logic)
+- **dataflow-api** is the **application** (contains all cluster/Cassandra config and runtime)
+- Clean dependency hierarchy prevents circular dependencies
+- Configuration lives in the application layer, not in libraries
 
 ---
 
