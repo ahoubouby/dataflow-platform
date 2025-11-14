@@ -204,9 +204,13 @@ lazy val dataflowCore = (project in file("dataflow-core"))
     libraryDependencies ++=
       commonDependencies ++
         testDependencies ++
-        clusterDependencies ++
-        persistenceDependencies ++
-        metricsDependencies ++
+        // Core only needs persistence API, not cluster or Cassandra client
+        Seq(
+          "org.apache.pekko" %% "pekko-persistence-typed"     % pekkoVersion,
+          "org.apache.pekko" %% "pekko-serialization-jackson" % pekkoVersion,
+          // Testing
+          "org.apache.pekko" %% "pekko-persistence-testkit" % pekkoVersion % Test,
+        ) ++
         validationDependencies,
   )
 
@@ -303,6 +307,8 @@ lazy val dataflowApi = (project in file("dataflow-api"))
         httpDependencies ++
         validationDependencies ++
         metricsDependencies ++
+        clusterDependencies ++      // API module runs the cluster
+        persistenceDependencies ++  // API module connects to Cassandra
         Seq(
           // CORS Support (still uses Akka naming)
           "ch.megard" %% "akka-http-cors" % "1.2.0",
