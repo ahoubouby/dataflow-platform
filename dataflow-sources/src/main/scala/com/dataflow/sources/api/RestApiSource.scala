@@ -12,9 +12,7 @@ import com.dataflow.domain.models.{DataRecord, SourceConfig}
 import com.dataflow.sources.{Source, SourceMetricsReporter}
 import com.dataflow.sources.models.SourceState
 import org.apache.pekko.{Done, NotUsed}
-import org.apache.pekko.actor.typed.{ActorRef, ActorSystem}
-import org.apache.pekko.cluster.sharding.typed.ShardingEnvelope
-import com.dataflow.domain.commands.Command
+import org.apache.pekko.actor.typed.ActorSystem
 import org.apache.pekko.http.scaladsl.Http
 import org.apache.pekko.http.scaladsl.model._
 import org.apache.pekko.http.scaladsl.model.headers.{Authorization, BasicHttpCredentials, OAuth2BearerToken}
@@ -413,47 +411,6 @@ class RestApiSource(
 
       Future.successful(Done)
     }
-  }
-
-  /**
-   * Send batch of records to pipeline.
-   */
-  private def sendBatch(
-    records: List[DataRecord],
-    pipelineShardRegion: ActorRef[ShardingEnvelope[Command]],
-  ): Future[Done] = {
-    if (records.isEmpty) {
-      return Future.successful(Done)
-    }
-
-    val batchId    = UUID.randomUUID().toString
-    val offset     = currentPage
-    val sendTimeMs = System.currentTimeMillis()
-
-    log.debug(
-      "Sending batch: batchId={} records={} page={} url={}",
-      batchId,
-      records.size,
-      offset,
-      apiUrl,
-    )
-
-    val command = IngestBatch(
-      pipelineId = pipelineId,
-      batchId = batchId,
-      records = records,
-      sourceOffset = offset,
-      replyTo = system.ignoreRef,
-    )
-
-    pipelineShardRegion ! ShardingEnvelope(pipelineId, command)
-
-    // Record batch metrics
-    val latencyMs = System.currentTimeMillis() - sendTimeMs
-    SourceMetricsReporter.recordBatchSent(pipelineId, "api", records.size, latencyMs)
-    SourceMetricsReporter.updateOffset(pipelineId, "api", offset)
-
-    Future.successful(Done)
   }
 
   /**

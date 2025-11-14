@@ -13,9 +13,7 @@ import com.dataflow.sources.models.SourceState
 import org.apache.kafka.clients.consumer.ConsumerConfig
 import org.apache.kafka.common.serialization.StringDeserializer
 import org.apache.pekko.{Done, NotUsed}
-import org.apache.pekko.actor.typed.{ActorRef, ActorSystem}
-import org.apache.pekko.cluster.sharding.typed.ShardingEnvelope
-import com.dataflow.domain.commands.Command
+import org.apache.pekko.actor.typed.ActorSystem
 import org.apache.pekko.kafka.{CommitterSettings, ConsumerSettings, Subscriptions}
 import org.apache.pekko.kafka.scaladsl.{Committer, Consumer}
 import org.apache.pekko.stream.{KillSwitches, SystemMaterializer}
@@ -264,116 +262,6 @@ class KafkaSource(
         ),
       ),
     )
-  }
-
-  /**
-   * Start consuming from Kafka and sending batches to pipeline.
-   */
-  override def start(
-    pipelineShardRegion: ActorRef[ShardingEnvelope[Command]],
-  ): Future[Done] = {
-    if (isRunning) {
-      log.warn("KafkaSource {} already running", sourceId)
-      Future.successful(Done)
-    } else {
-      log.info("Starting KafkaSource {} for topic {}", sourceId, topic)
-      isRunning = true
-
-      // Update health metrics
-      SourceMetricsReporter.updateHealth(pipelineId, "kafka", isHealthy = true)
-
-      // Create stream with batching and committing
-      val (switch, doneF) = Consumer
-        .committableSource(consumerSettings, Subscriptions.topics(topic))
-        .viaMat(KillSwitches.single)(Keep.right)
-        .map {
-          msg =>
-            currentKafkaOffset = msg.record.offset()
-
-            val record = parseKafkaMessage(
-              key = msg.record.key(),
-              value = msg.record.value(),
-              topic = msg.record.topic(),
-              partition = msg.record.partition(),
-              offset = msg.record.offset(),
-              timestamp = msg.record.timestamp(),
-            )
-
-            (record, msg.committableOffset)
-        }
-        .collect { case (Some(record), offset) => (record, offset) }
-        .groupedWithin(
-          config.batchSize,
-          scala.concurrent.duration.Duration.fromNanos(config.pollIntervalMs * 1000000L),
-        )
-        .mapAsync(1) {
-          recordsWithOffsets =>
-            val records    = recordsWithOffsets.map(_._1).toList
-            val lastOffset = recordsWithOffsets.last._2
-
-            sendBatch(records, pipelineShardRegion).map(_ => lastOffset)
-        }
-        .toMat(Committer.sink(committerSettings))(Keep.both)
-        .run()
-
-      killSwitch = Some(switch)
-
-      doneF.onComplete {
-        case Success(_)  =>
-          log.info("KafkaSource {} completed", sourceId)
-          isRunning = false
-          SourceMetricsReporter.updateHealth(pipelineId, "kafka", isHealthy = false)
-        case Failure(ex) =>
-          log.error("KafkaSource {} failed: {}", sourceId, ex.getMessage, ex)
-          isRunning = false
-          SourceMetricsReporter.recordError(pipelineId, "kafka", "stream_failure")
-          SourceMetricsReporter.recordConnectionError(pipelineId, "kafka")
-          SourceMetricsReporter.updateHealth(pipelineId, "kafka", isHealthy = false)
-      }
-
-      Future.successful(Done)
-    }
-  }
-
-  /**
-   * Send batch of records to pipeline.
-   */
-  private def sendBatch(
-    records: List[DataRecord],
-    pipelineShardRegion: ActorRef[ShardingEnvelope[Command]],
-  ): Future[Done] = {
-    if (records.isEmpty) {
-      return Future.successful(Done)
-    }
-
-    val batchId    = UUID.randomUUID().toString
-    val offset     = currentKafkaOffset
-    val sendTimeMs = System.currentTimeMillis()
-
-    log.debug(
-      "Sending batch: batchId={} records={} offset={} topic={}",
-      batchId,
-      records.size,
-      offset,
-      topic,
-    )
-
-    val command = IngestBatch(
-      pipelineId = pipelineId,
-      batchId = batchId,
-      records = records,
-      sourceOffset = offset,
-      replyTo = system.ignoreRef,
-    )
-
-    pipelineShardRegion ! ShardingEnvelope(pipelineId, command)
-
-    // Record batch metrics
-    val latencyMs = System.currentTimeMillis() - sendTimeMs
-    SourceMetricsReporter.recordBatchSent(pipelineId, "kafka", records.size, latencyMs)
-    SourceMetricsReporter.updateOffset(pipelineId, "kafka", offset)
-
-    Future.successful(Done)
   }
 
   /**

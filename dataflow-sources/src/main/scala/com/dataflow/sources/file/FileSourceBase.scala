@@ -14,9 +14,7 @@ import com.dataflow.domain.models.{DataRecord, SourceConfig}
 import com.dataflow.sources.{Source, SourceMetricsReporter}
 import com.dataflow.sources.models._
 import org.apache.pekko.{Done, NotUsed}
-import org.apache.pekko.actor.typed.{ActorRef, ActorSystem}
-import org.apache.pekko.cluster.sharding.typed.ShardingEnvelope
-import com.dataflow.domain.commands.Command
+import org.apache.pekko.actor.typed.ActorSystem
 import org.apache.pekko.stream.{KillSwitches, SystemMaterializer}
 import org.apache.pekko.stream.scaladsl.{FileIO, Framing, Keep, Sink, Source => PekkoSource}
 import org.apache.pekko.util.ByteString
@@ -195,109 +193,6 @@ abstract class FileSourceBase(
       src =>
         src.mapMaterializedValue(_ => NotUsed),
     )
-  }
-
-  /**
-   * Start reading file and sending batches to pipeline.
-   */
-  override def start(
-    pipelineShardRegion: ActorRef[ShardingEnvelope[Command]],
-  ): Future[Done] = {
-    val state = getCurrentState
-
-    if (state.isRunning) {
-      log.warn("{} {} already running", getClass.getSimpleName, sourceId)
-      return Future.successful(Done)
-    }
-
-    log.info("Starting {} {} for {}", getClass.getSimpleName, sourceId, filePath)
-
-    buildFormatStream() match {
-      case Right(formatStream) =>
-        startStream(formatStream, pipelineShardRegion)
-
-      case Left(error) =>
-        log.error(s"Failed to start source: ${error.message}")
-        updateState(_.withError(error))
-        Future.failed(new RuntimeException(error.message))
-    }
-  }
-
-  private def startStream(
-    formatStream: PekkoSource[DataRecord, NotUsed],
-    pipelineShardRegion: ActorRef[ShardingEnvelope[Command]],
-  ): Future[Done] = {
-    // Update state to running
-    updateState(_.withRunState(FileSourceRunState.Running))
-
-    // Update health metrics
-    SourceMetricsReporter.updateHealth(pipelineId, "file", isHealthy = true)
-
-    val (switch, doneF) = formatStream
-      .viaMat(KillSwitches.single)(Keep.right)
-      .grouped(batchSize)
-      .mapAsync(1)(records => sendBatch(records.toList, pipelineShardRegion))
-      .toMat(Sink.ignore)(Keep.both)
-      .run()
-
-    // Store kill switch
-    updateState(_.withKillSwitch(switch))
-
-    // Handle completion
-    doneF.onComplete {
-      case Success(_) =>
-        log.info("{} {} completed", getClass.getSimpleName, sourceId)
-        updateState(_.withRunState(FileSourceRunState.Stopped).clearKillSwitch())
-        SourceMetricsReporter.updateHealth(pipelineId, "file", isHealthy = false)
-
-      case Failure(ex) =>
-        log.error("{} {} failed: {}", getClass.getSimpleName, sourceId, ex.getMessage, ex)
-        val error = FileSourceError.StreamFailure(ex)
-        updateState(_.withError(error).clearKillSwitch())
-        recordStreamError()
-        SourceMetricsReporter.updateHealth(pipelineId, "file", isHealthy = false)
-    }
-
-    Future.successful(Done)
-  }
-
-  /**
-   * Send batch of records to pipeline with functional error handling.
-   */
-  private def sendBatch(
-    records: List[DataRecord],
-    pipelineShardRegion: ActorRef[ShardingEnvelope[Command]],
-  ): Future[Done] = {
-    if (records.isEmpty) {
-      return Future.successful(Done)
-    }
-
-    val state      = getCurrentState
-    val batchId    = UUID.randomUUID().toString
-    val offset     = state.currentLineNumber
-    val sendTimeMs = System.currentTimeMillis()
-
-    log.debug(s"Sending batch: batchId=$batchId, records=${records.size}, offset=$offset")
-
-    val command = IngestBatch(
-      pipelineId = pipelineId,
-      batchId = batchId,
-      records = records,
-      sourceOffset = offset,
-      replyTo = system.ignoreRef,
-    )
-
-    pipelineShardRegion ! ShardingEnvelope(pipelineId, command)
-
-    // Record batch metrics
-    val latencyMs = System.currentTimeMillis() - sendTimeMs
-    SourceMetricsReporter.recordBatchSent(pipelineId, "file", records.size, latencyMs)
-    SourceMetricsReporter.updateOffset(pipelineId, "file", offset)
-
-    // Update read progress
-    updateReadProgress(offset)
-
-    Future.successful(Done)
   }
 
   private def updateReadProgress(currentOffset: Long): Unit = {

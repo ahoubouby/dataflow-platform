@@ -13,9 +13,7 @@ import com.dataflow.domain.models.{DataRecord, SourceConfig}
 import com.dataflow.sources.{Source, SourceMetricsReporter}
 import com.dataflow.sources.models.SourceState
 import org.apache.pekko.{Done, NotUsed}
-import org.apache.pekko.actor.typed.{ActorRef, ActorSystem}
-import org.apache.pekko.cluster.sharding.typed.ShardingEnvelope
-import com.dataflow.domain.commands.Command
+import org.apache.pekko.actor.typed.ActorSystem
 import org.apache.pekko.stream.{KillSwitches, SystemMaterializer}
 import org.apache.pekko.stream.scaladsl.{FileIO, Framing, Keep, Sink, Source => PekkoSource}
 import org.apache.pekko.util.ByteString
@@ -152,92 +150,6 @@ abstract class FileSourceBaseV3(
     }
 
     buildFormatStream()
-  }
-
-  /**
-   * Start reading file and sending batches to pipeline.
-   */
-  override def start(
-    pipelineShardRegion: ActorRef[ShardingEnvelope[Command]],
-  ): Future[Done] = {
-    if (isRunning) {
-      log.warn("{} {} already running", getClass.getSimpleName, sourceId)
-      Future.successful(Done)
-    } else {
-      log.info("Starting {} {} for {}", getClass.getSimpleName, sourceId, filePath)
-      isRunning = true
-
-      // Update health metrics
-      SourceMetricsReporter.updateHealth(pipelineId, "file", isHealthy = true)
-
-      val (switch, doneF) =
-        buildFormatStream()
-          .viaMat(KillSwitches.single)(Keep.right)
-          .grouped(config.batchSize)
-          .mapAsync(1)(records => sendBatch(records.toList, pipelineShardRegion))
-          .toMat(Sink.ignore)(Keep.both)
-          .run()
-
-      killSwitch = Some(switch)
-
-      doneF.onComplete {
-        case Success(_)  =>
-          log.info("{} {} completed", getClass.getSimpleName, sourceId)
-          isRunning = false
-          SourceMetricsReporter.updateHealth(pipelineId, "file", isHealthy = false)
-        case Failure(ex) =>
-          log.error("{} {} failed: {}", getClass.getSimpleName, sourceId, ex.getMessage, ex)
-          isRunning = false
-          SourceMetricsReporter.recordError(pipelineId, "file", "stream_failure")
-          SourceMetricsReporter.updateHealth(pipelineId, "file", isHealthy = false)
-      }
-
-      Future.successful(Done)
-    }
-  }
-
-  /**
-   * Send batch of records to pipeline.
-   */
-  private def sendBatch(
-    records: List[DataRecord],
-    pipelineShardRegion: ActorRef[ShardingEnvelope[Command]],
-  ): Future[Done] = {
-    if (records.isEmpty) {
-      return Future.successful(Done)
-    }
-
-    val batchId    = UUID.randomUUID().toString
-    val offset     = currentLineNumber
-    val sendTimeMs = System.currentTimeMillis()
-
-    log.debug(s"Sending batch: batchId=$batchId, records=${records.size}, offset=$offset")
-
-    val command = IngestBatch(
-      pipelineId = pipelineId,
-      batchId = batchId,
-      records = records,
-      sourceOffset = offset,
-      replyTo = system.ignoreRef,
-    )
-
-    pipelineShardRegion ! ShardingEnvelope(pipelineId, command)
-
-    // Record batch metrics
-    val latencyMs = System.currentTimeMillis() - sendTimeMs
-    SourceMetricsReporter.recordBatchSent(pipelineId, "file", records.size, latencyMs)
-    SourceMetricsReporter.updateOffset(pipelineId, "file", offset)
-
-    // Update read progress (current line / total lines)
-    if (Files.exists(filePath)) {
-      val totalLines = Files.lines(filePath).count()
-      if (totalLines > 0) {
-        val progress = Math.min(1.0, currentLineNumber.toDouble / totalLines.toDouble)
-        SourceMetricsReporter.updateFileReadProgress(pipelineId, progress)
-      }
-    }
-
-    Future.successful(Done)
   }
 
   /**
