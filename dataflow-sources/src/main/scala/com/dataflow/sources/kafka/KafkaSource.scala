@@ -14,6 +14,8 @@ import org.apache.kafka.clients.consumer.ConsumerConfig
 import org.apache.kafka.common.serialization.StringDeserializer
 import org.apache.pekko.{Done, NotUsed}
 import org.apache.pekko.actor.typed.{ActorRef, ActorSystem}
+import org.apache.pekko.cluster.sharding.typed.ShardingEnvelope
+import com.dataflow.domain.commands.Command
 import org.apache.pekko.kafka.{CommitterSettings, ConsumerSettings, Subscriptions}
 import org.apache.pekko.kafka.scaladsl.{Committer, Consumer}
 import org.apache.pekko.stream.{KillSwitches, SystemMaterializer}

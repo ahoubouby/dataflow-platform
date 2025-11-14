@@ -228,6 +228,7 @@ lazy val dataflowSources = (project in file("dataflow-sources"))
         httpDependencies ++
         kafkaDependencies ++
         databaseDependencies ++
+        metricsDependencies ++  // ← Kamon for SourceMetricsReporter
         Seq(
           // File Connectors
           "org.apache.pekko"     %% "pekko-connectors-file" % pekkoConnectorsVersion,
