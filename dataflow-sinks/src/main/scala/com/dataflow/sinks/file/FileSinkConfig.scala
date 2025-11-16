@@ -1,7 +1,7 @@
 package com.dataflow.sinks.file
 
 import com.dataflow.sinks.domain.BatchConfig
-import com.dataflow.sinks.domain.exceptions.{ConfigurationError, SinkError}
+import com.dataflow.sinks.domain.exceptions.{ConfigurationError, FileSinkException, SinkError}
 
 /**
  * File sink configuration with validation.
@@ -24,12 +24,16 @@ object FileSinkConfig {
     compression: Option[String] = None,
     rotationSize: Option[Long] = Some(100 * 1024 * 1024),
     batchConfig: BatchConfig = BatchConfig.default,
-  ): Either[SinkError, FileSinkConfig] = {
-    for {
+  ): FileSinkConfig = {
+    val result = for {
       _ <- Either.cond(path.nonEmpty, (), ConfigurationError("Path cannot be empty"))
       _ <- validateCompression(compression)
       _ <- validateRotationSize(rotationSize)
     } yield FileSinkConfig(path, format, compression, rotationSize, batchConfig)
+    result.fold(
+      error => throw new FileSinkException(error),
+      identity
+    )
   }
 
   private def validateCompression(compression: Option[String]): Either[SinkError, Unit] = {

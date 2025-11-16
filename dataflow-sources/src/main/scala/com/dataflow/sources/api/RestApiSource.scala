@@ -374,44 +374,44 @@ class RestApiSource(
   /**
    * Start polling API and sending batches to pipeline.
    */
-  override def start(
-    pipelineShardRegion: ActorRef[ShardingEnvelope[Command]],
-  ): Future[Done] = {
-    if (isRunning) {
-      log.warn("RestApiSource {} already running", sourceId)
-      Future.successful(Done)
-    } else {
-      log.info("Starting RestApiSource {} for {}", sourceId, apiUrl)
-      isRunning = true
-
-      // Update health metrics
-      SourceMetricsReporter.updateHealth(pipelineId, "api", isHealthy = true)
-
-      val (switch, doneF) =
-        buildDataStream()
-          .viaMat(KillSwitches.single)(Keep.right)
-          .grouped(config.batchSize)
-          .mapAsync(1)(records => sendBatch(records.toList, pipelineShardRegion))
-          .toMat(Sink.ignore)(Keep.both)
-          .run()
-
-      killSwitch = Some(switch)
-
-      doneF.onComplete {
-        case Success(_)  =>
-          log.info("RestApiSource {} completed", sourceId)
-          isRunning = false
-          SourceMetricsReporter.updateHealth(pipelineId, "api", isHealthy = false)
-        case Failure(ex) =>
-          log.error("RestApiSource {} failed: {}", sourceId, ex.getMessage, ex)
-          isRunning = false
-          SourceMetricsReporter.recordError(pipelineId, "api", "stream_failure")
-          SourceMetricsReporter.updateHealth(pipelineId, "api", isHealthy = false)
-      }
-
-      Future.successful(Done)
-    }
-  }
+//  override def start(
+//    pipelineShardRegion: ActorRef[ShardingEnvelope[Command]],
+//  ): Future[Done] = {
+//    if (isRunning) {
+//      log.warn("RestApiSource {} already running", sourceId)
+//      Future.successful(Done)
+//    } else {
+//      log.info("Starting RestApiSource {} for {}", sourceId, apiUrl)
+//      isRunning = true
+//
+//      // Update health metrics
+//      SourceMetricsReporter.updateHealth(pipelineId, "api", isHealthy = true)
+//
+//      val (switch, doneF) =
+//        buildDataStream()
+//          .viaMat(KillSwitches.single)(Keep.right)
+//          .grouped(config.batchSize)
+//          .mapAsync(1)(records => sendBatch(records.toList, pipelineShardRegion))
+//          .toMat(Sink.ignore)(Keep.both)
+//          .run()
+//
+//      killSwitch = Some(switch)
+//
+//      doneF.onComplete {
+//        case Success(_)  =>
+//          log.info("RestApiSource {} completed", sourceId)
+//          isRunning = false
+//          SourceMetricsReporter.updateHealth(pipelineId, "api", isHealthy = false)
+//        case Failure(ex) =>
+//          log.error("RestApiSource {} failed: {}", sourceId, ex.getMessage, ex)
+//          isRunning = false
+//          SourceMetricsReporter.recordError(pipelineId, "api", "stream_failure")
+//          SourceMetricsReporter.updateHealth(pipelineId, "api", isHealthy = false)
+//      }
+//
+//      Future.successful(Done)
+//    }
+//  }
 
   /**
    * Stop polling API.

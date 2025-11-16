@@ -6,11 +6,6 @@ import com.dataflow.domain.state._
 import org.apache.pekko.actor.typed.scaladsl.{ActorContext, Behaviors}
 import org.apache.pekko.actor.typed.{ActorRef, Behavior}
 import org.apache.pekko.cluster.sharding.typed.scaladsl.ClusterSharding
-import org.apache.pekko.persistence.query.{EventEnvelope, Offset}
-import org.apache.pekko.persistence.typed.PersistenceId
-import org.apache.pekko.projection.eventsourced.scaladsl.EventSourcedProvider
-import org.apache.pekko.projection.scaladsl.SourceProvider
-import org.apache.pekko.projection.ProjectionId
 import org.slf4j.LoggerFactory
 
 import scala.collection.mutable
@@ -162,11 +157,11 @@ object ExecutionOrchestrator {
         val pipelineEntity = sharding.entityRefFor(PipelineService.TypeKey, pipelineId)
 
         // Ask for current state to get config
-        import context.executionContext
-        import org.apache.pekko.actor.typed.scaladsl.AskPattern._
-        import org.apache.pekko.util.Timeout
-        import scala.concurrent.duration._
         import com.dataflow.domain.commands.GetState
+        import context.executionContext
+        import org.apache.pekko.util.Timeout
+
+        import scala.concurrent.duration._
 
         implicit val timeout: Timeout = Timeout(5.seconds)
 

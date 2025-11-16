@@ -136,7 +136,7 @@ object TransformConfigMapper {
           throw new IllegalArgumentException(s"Unknown aggregation type: $other")
       }
 
-      field -> aggType
+      aggType->field
     }.toMap
 
     // Parse window size

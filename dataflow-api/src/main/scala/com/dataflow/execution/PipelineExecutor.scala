@@ -1,20 +1,20 @@
 package com.dataflow.execution
 
-import com.dataflow.domain.models.{DataRecord, PipelineConfig, SinkConfig, SourceConfig, TransformConfig}
-import com.dataflow.sources.Source
+import scala.concurrent.{ExecutionContext, ExecutionContextExecutor, Future}
+import scala.util.{Failure, Success}
+
+import com.dataflow.domain.models.PipelineConfig
 import com.dataflow.sinks.domain.DataSink
+import com.dataflow.sources.Source
 import com.dataflow.transforms.domain.Transform
 import kamon.Kamon
 import kamon.metric.Counter
+import org.apache.pekko.Done
+import org.apache.pekko.actor.typed.{ActorRef, ActorSystem, Behavior}
 import org.apache.pekko.actor.typed.scaladsl.{ActorContext, Behaviors}
-import org.apache.pekko.actor.typed.{ActorRef, Behavior}
-import org.apache.pekko.stream.scaladsl.{Keep, RunnableGraph}
 import org.apache.pekko.stream.{KillSwitches, Materializer, UniqueKillSwitch}
-import org.apache.pekko.{Done, NotUsed}
+import org.apache.pekko.stream.scaladsl.{Keep, RunnableGraph}
 import org.slf4j.LoggerFactory
-
-import scala.concurrent.{ExecutionContext, Future}
-import scala.util.{Failure, Success}
 
 /**
  * Actor responsible for executing a single pipeline.
@@ -67,12 +67,12 @@ object PipelineExecutor {
   /**
    * Internal message when stream completes.
    */
-  private final case class StreamCompleted(result: Done) extends Command
+  final private case class StreamCompleted(result: Done) extends Command
 
   /**
    * Internal message when stream fails.
    */
-  private final case class StreamFailed(error: Throwable) extends Command
+  final private case class StreamFailed(error: Throwable) extends Command
 
   // ============================================
   // RESPONSES
@@ -96,7 +96,7 @@ object PipelineExecutor {
   // STATE
   // ============================================
 
-  private final case class ExecutionState(
+  final private case class ExecutionState(
     pipelineId: String,
     config: PipelineConfig,
     source: Option[Source] = None,
@@ -114,8 +114,9 @@ object PipelineExecutor {
   // ============================================
 
   def apply(): Behavior[Command] = {
-    Behaviors.setup { context =>
-      idle(context)
+    Behaviors.setup {
+      context =>
+        idle(context)
     }
   }
 
@@ -135,7 +136,8 @@ object PipelineExecutor {
           val state = ExecutionState(
             pipelineId = pipelineId,
             config = config,
-            metricsCounter = Some(metricsCounter))
+            metricsCounter = Some(metricsCounter),
+          )
 
           // Instantiate components
           val updatedState = instantiateComponents(state, context)
@@ -193,7 +195,8 @@ object PipelineExecutor {
           recordsProcessed = state.recordsProcessed,
           recordsFailed = state.recordsFailed,
           bytesProcessed = state.bytesProcessed,
-          isRunning = true)
+          isRunning = true,
+        )
         Behaviors.same
 
       case StreamCompleted(result) =>
@@ -243,7 +246,8 @@ object PipelineExecutor {
           recordsProcessed = state.recordsProcessed,
           recordsFailed = state.recordsFailed,
           bytesProcessed = state.bytesProcessed,
-          isRunning = false)
+          isRunning = false,
+        )
         Behaviors.same
 
       case _ =>
@@ -262,28 +266,30 @@ object PipelineExecutor {
     state: ExecutionState,
     context: ActorContext[Command],
   ): ExecutionState = {
-    implicit val system = context.system
+    implicit val system:           ActorSystem[Nothing]     = context.system
+    implicit val executionContext: ExecutionContextExecutor = context.executionContext
 
     // Instantiate source
     val source = Source(state.pipelineId, state.config.source)
     context.log.info("Instantiated source: {}", state.config.source.sourceType)
 
     // Instantiate transforms
-    val transforms = state.config.transforms.flatMap { transformConfig =>
-      TransformConfigMapper.toTransformationConfig(transformConfig) match {
-        case Success(config) =>
-          com.dataflow.transforms.TransformFactory.create(config) match {
-            case Success(transform) =>
-              context.log.info("Instantiated transform: {}", transformConfig.transformType)
-              Some(transform)
-            case Failure(ex) =>
-              context.log.error("Failed to create transform: {}", ex.getMessage, ex)
-              None
-          }
-        case Failure(ex) =>
-          context.log.error("Failed to map transform config: {}", ex.getMessage, ex)
-          None
-      }
+    val transforms = state.config.transforms.flatMap {
+      transformConfig =>
+        TransformConfigMapper.toTransformationConfig(transformConfig) match {
+          case Success(config) =>
+            com.dataflow.transforms.TransformFactory.create(config) match {
+              case Success(transform) =>
+                context.log.info("Instantiated transform: {}", transformConfig.transformType)
+                Some(transform)
+              case Failure(ex)        =>
+                context.log.error("Failed to create transform: {}", ex.getMessage, ex)
+                None
+            }
+          case Failure(ex)     =>
+            context.log.error("Failed to map transform config: {}", ex.getMessage, ex)
+            None
+        }
     }.toList
 
     // Instantiate sink
@@ -293,7 +299,8 @@ object PipelineExecutor {
     state.copy(
       source = Some(source),
       transforms = transforms,
-      sink = Some(sink))
+      sink = Some(sink),
+    )
   }
 
   /**
@@ -305,24 +312,26 @@ object PipelineExecutor {
   ): scala.util.Try[ExecutionState] = {
     scala.util.Try {
       implicit val system = context.system
-      implicit val ec: ExecutionContext = system.executionContext
-      implicit val mat: Materializer = Materializer(system)
+      implicit val ec:  ExecutionContext = system.executionContext
+      implicit val mat: Materializer     = Materializer(system)
 
       val source = state.source.getOrElse(throw new IllegalStateException("Source not initialized"))
-      val sink = state.sink.getOrElse(throw new IllegalStateException("Sink not initialized"))
+      val sink   = state.sink.getOrElse(throw new IllegalStateException("Sink not initialized"))
 
       // Build the stream graph: Source -> Transform(s) -> Sink
       val streamSource = source.stream()
 
       // Apply all transforms in sequence
-      val transformedStream = state.transforms.foldLeft(streamSource) { (stream, transform) =>
-        stream
-          .via(transform.flow)
-          .map { record =>
-            // Increment metrics counter
-            state.metricsCounter.foreach(_.increment())
-            record
-          }
+      val transformedStream = state.transforms.foldLeft(streamSource) {
+        (stream, transform) =>
+          stream
+            .via(transform.flow)
+            .map {
+              record =>
+                // Increment metrics counter
+                state.metricsCounter.foreach(_.increment())
+                record
+            }
       }
 
       // Add kill switch for graceful shutdown
@@ -336,7 +345,7 @@ object PipelineExecutor {
 
       // Handle stream completion
       streamFuture.onComplete {
-        case Success(done) =>
+        case Success(done)  =>
           context.self ! StreamCompleted(done)
         case Failure(error) =>
           context.self ! StreamFailed(error)
@@ -346,7 +355,8 @@ object PipelineExecutor {
 
       state.copy(
         killSwitch = Some(killSwitch),
-        streamFuture = Some(streamFuture))
+        streamFuture = Some(streamFuture),
+      )
     }
   }
 
@@ -357,9 +367,10 @@ object PipelineExecutor {
     state: ExecutionState,
     context: ActorContext[Command],
   ): Unit = {
-    state.killSwitch.foreach { ks =>
-      context.log.info("Shutting down stream for pipeline: {}", state.pipelineId)
-      ks.shutdown()
+    state.killSwitch.foreach {
+      ks =>
+        context.log.info("Shutting down stream for pipeline: {}", state.pipelineId)
+        ks.shutdown()
     }
 
     cleanup(state, context)
@@ -375,23 +386,25 @@ object PipelineExecutor {
     implicit val ec: ExecutionContext = context.system.executionContext
 
     // Stop source
-    state.source.foreach { source =>
-      source.stop().onComplete {
-        case Success(_) =>
-          context.log.debug("Source stopped successfully")
-        case Failure(ex) =>
-          context.log.error("Error stopping source: {}", ex.getMessage, ex)
-      }
+    state.source.foreach {
+      source =>
+        source.stop().onComplete {
+          case Success(_)  =>
+            context.log.debug("Source stopped successfully")
+          case Failure(ex) =>
+            context.log.error("Error stopping source: {}", ex.getMessage, ex)
+        }
     }
 
     // Close sink
-    state.sink.foreach { sink =>
-      sink.close().onComplete {
-        case Success(_) =>
-          context.log.debug("Sink closed successfully")
-        case Failure(ex) =>
-          context.log.error("Error closing sink: {}", ex.getMessage, ex)
-      }
+    state.sink.foreach {
+      sink =>
+        sink.close().onComplete {
+          case Success(_)  =>
+            context.log.debug("Sink closed successfully")
+          case Failure(ex) =>
+            context.log.error("Error closing sink: {}", ex.getMessage, ex)
+        }
     }
   }
 }

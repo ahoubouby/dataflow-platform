@@ -212,8 +212,6 @@ object ConsoleSinkExamples extends App {
 
     val config = ConsoleSinkConfig.create(
       format = OutputFormat.KeyValue,
-      showTimestamp = true,
-      showMetadata = true,
       printSummary = false
     ).toOption.get
 

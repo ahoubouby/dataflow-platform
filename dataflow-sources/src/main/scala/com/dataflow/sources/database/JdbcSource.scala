@@ -291,44 +291,44 @@ class JdbcSource(
   /**
    * Start polling database and sending batches to pipeline.
    */
-  override def start(
-    pipelineShardRegion: ActorRef[ShardingEnvelope[Command]],
-  ): Future[Done] = {
-    if (isRunning) {
-      log.warn("JdbcSource {} already running", sourceId)
-      Future.successful(Done)
-    } else {
-      log.info("Starting JdbcSource {} for {}", sourceId, jdbcUrl)
-      isRunning = true
-
-      // Update health metrics
-      SourceMetricsReporter.updateHealth(pipelineId, "database", isHealthy = true)
-
-      val (switch, doneF) =
-        buildDataStream()
-          .viaMat(KillSwitches.single)(Keep.right)
-          .grouped(config.batchSize)
-          .mapAsync(1)(records => sendBatch(records.toList, pipelineShardRegion))
-          .toMat(Sink.ignore)(Keep.both)
-          .run()
-
-      killSwitch = Some(switch)
-
-      doneF.onComplete {
-        case Success(_)  =>
-          log.info("JdbcSource {} completed", sourceId)
-          isRunning = false
-          SourceMetricsReporter.updateHealth(pipelineId, "database", isHealthy = false)
-        case Failure(ex) =>
-          log.error("JdbcSource {} failed: {}", sourceId, ex.getMessage, ex)
-          isRunning = false
-          SourceMetricsReporter.recordError(pipelineId, "database", "stream_failure")
-          SourceMetricsReporter.updateHealth(pipelineId, "database", isHealthy = false)
-      }
-
-      Future.successful(Done)
-    }
-  }
+//  override def start(
+//    pipelineShardRegion: ActorRef[ShardingEnvelope[Command]],
+//  ): Future[Done] = {
+//    if (isRunning) {
+//      log.warn("JdbcSource {} already running", sourceId)
+//      Future.successful(Done)
+//    } else {
+//      log.info("Starting JdbcSource {} for {}", sourceId, jdbcUrl)
+//      isRunning = true
+//
+//      // Update health metrics
+//      SourceMetricsReporter.updateHealth(pipelineId, "database", isHealthy = true)
+//
+//      val (switch, doneF) =
+//        buildDataStream()
+//          .viaMat(KillSwitches.single)(Keep.right)
+//          .grouped(config.batchSize)
+//          .mapAsync(1)(records => sendBatch(records.toList, pipelineShardRegion))
+//          .toMat(Sink.ignore)(Keep.both)
+//          .run()
+//
+//      killSwitch = Some(switch)
+//
+//      doneF.onComplete {
+//        case Success(_)  =>
+//          log.info("JdbcSource {} completed", sourceId)
+//          isRunning = false
+//          SourceMetricsReporter.updateHealth(pipelineId, "database", isHealthy = false)
+//        case Failure(ex) =>
+//          log.error("JdbcSource {} failed: {}", sourceId, ex.getMessage, ex)
+//          isRunning = false
+//          SourceMetricsReporter.recordError(pipelineId, "database", "stream_failure")
+//          SourceMetricsReporter.updateHealth(pipelineId, "database", isHealthy = false)
+//      }
+//
+//      Future.successful(Done)
+//    }
+//  }
 
   /**
    * Stop polling database.

@@ -315,44 +315,44 @@ class WebSocketSource(
   /**
    * Start WebSocket connection and send batches to pipeline.
    */
-  override def start(
-    pipelineShardRegion: ActorRef[ShardingEnvelope[Command]],
-  ): Future[Done] = {
-    if (isRunning) {
-      log.warn("WebSocketSource {} already running", sourceId)
-      Future.successful(Done)
-    } else {
-      log.info("Starting WebSocketSource {} for {}", sourceId, wsUrl)
-      isRunning = true
-
-      // Update health metrics
-      SourceMetricsReporter.updateHealth(pipelineId, "websocket", isHealthy = true)
-
-      val (switch, doneF) =
-        buildWebSocketStream()
-          .viaMat(KillSwitches.single)(Keep.right)
-          .grouped(config.batchSize)
-          .mapAsync(1)(records => sendBatch(records.toList, pipelineShardRegion))
-          .toMat(Sink.ignore)(Keep.both)
-          .run()
-
-      killSwitch = Some(switch)
-
-      doneF.onComplete {
-        case Success(_)  =>
-          log.info("WebSocketSource {} completed", sourceId)
-          isRunning = false
-          SourceMetricsReporter.updateHealth(pipelineId, "websocket", isHealthy = false)
-        case Failure(ex) =>
-          log.error("WebSocketSource {} failed: {}", sourceId, ex.getMessage, ex)
-          isRunning = false
-          SourceMetricsReporter.recordError(pipelineId, "websocket", "stream_failure")
-          SourceMetricsReporter.updateHealth(pipelineId, "websocket", isHealthy = false)
-      }
-
-      Future.successful(Done)
-    }
-  }
+//  override def start(
+//    pipelineShardRegion: ActorRef[ShardingEnvelope[Command]],
+//  ): Future[Done] = {
+//    if (isRunning) {
+//      log.warn("WebSocketSource {} already running", sourceId)
+//      Future.successful(Done)
+//    } else {
+//      log.info("Starting WebSocketSource {} for {}", sourceId, wsUrl)
+//      isRunning = true
+//
+//      // Update health metrics
+//      SourceMetricsReporter.updateHealth(pipelineId, "websocket", isHealthy = true)
+//
+//      val (switch, doneF) =
+//        buildWebSocketStream()
+//          .viaMat(KillSwitches.single)(Keep.right)
+//          .grouped(config.batchSize)
+//          .mapAsync(1)(records => sendBatch(records.toList, pipelineShardRegion))
+//          .toMat(Sink.ignore)(Keep.both)
+//          .run()
+//
+//      killSwitch = Some(switch)
+//
+//      doneF.onComplete {
+//        case Success(_)  =>
+//          log.info("WebSocketSource {} completed", sourceId)
+//          isRunning = false
+//          SourceMetricsReporter.updateHealth(pipelineId, "websocket", isHealthy = false)
+//        case Failure(ex) =>
+//          log.error("WebSocketSource {} failed: {}", sourceId, ex.getMessage, ex)
+//          isRunning = false
+//          SourceMetricsReporter.recordError(pipelineId, "websocket", "stream_failure")
+//          SourceMetricsReporter.updateHealth(pipelineId, "websocket", isHealthy = false)
+//      }
+//
+//      Future.successful(Done)
+//    }
+//  }
 
   /**
    * Stop WebSocket connection.
