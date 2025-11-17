@@ -59,7 +59,7 @@ object PipelineEventListener {
               // Format: "pipeline-<uuid>"
               val pipelineId = envelope.persistenceId.split("-", 2).lastOption.getOrElse("unknown")
 
-              log.debug("Received event: {} for pipeline: {}", event.getClass.getSimpleName, pipelineId)
+              log.info("Received event: {} for pipeline: {}", event.getClass.getSimpleName, pipelineId)
 
               // Forward to orchestrator
               orchestrator ! ExecutionOrchestrator.HandleEvent(event, pipelineId)

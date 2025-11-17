@@ -26,11 +26,11 @@ echo "2. Creating a new pipeline..."
 PIPELINE_RESPONSE=$(curl -s -X POST "$API_BASE_URL/api/v1/pipelines" \
   -H "Content-Type: application/json" \
   -d '{
-    "name": "User Events Processing Pipeline",
+    "name": "User-EventsProcessing-Pipeline",
     "description": "Processes user events from CSV file to console",
     "source": {
       "sourceType": "file",
-      "connectionString": "/tmp/users.csv",
+      "connectionString": "/Users/ahoubouby/Desktop/projects/learning/dataflow-platform/dataflow-examples/data/users.csv",
       "batchSize": 100,
       "pollIntervalMs": 1000,
       "options": {}
@@ -52,7 +52,7 @@ PIPELINE_RESPONSE=$(curl -s -X POST "$API_BASE_URL/api/v1/pipelines" \
     ],
     "sink": {
       "sinkType": "console",
-      "connectionString": "",
+      "connectionString": "nothing",
       "batchSize": 10
     }
   }')

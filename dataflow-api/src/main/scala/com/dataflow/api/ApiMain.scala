@@ -2,7 +2,6 @@ package com.dataflow.api
 
 import com.dataflow.aggregates.PipelineAggregate
 import com.dataflow.api.services.PipelineService
-import com.dataflow.domain.commands.Command
 import com.dataflow.execution.{ExecutionOrchestrator, PipelineEventListener}
 import kamon.Kamon
 import org.apache.pekko.actor.typed.ActorSystem
@@ -10,7 +9,6 @@ import org.apache.pekko.actor.typed.scaladsl.Behaviors
 import org.apache.pekko.cluster.sharding.typed.scaladsl.{ClusterSharding, Entity}
 import org.apache.pekko.management.cluster.bootstrap.ClusterBootstrap
 import org.apache.pekko.management.scaladsl.PekkoManagement
-import org.apache.pekko.http.scaladsl.Http
 
 import scala.concurrent.ExecutionContext
 import scala.util.{Failure, Success}
@@ -86,5 +84,5 @@ object ApiMain extends App {
   }
 
   // Start the actor system
-  ActorSystem[Nothing](rootBehavior, "DataFlowSystem")
+  ActorSystem[Nothing](rootBehavior, "DataflowPlatform")
 }

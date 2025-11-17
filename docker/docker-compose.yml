@@ -15,8 +15,8 @@ services:
     container_name: dataflow-cassandra
     ports:
       - "9042:9042"    # CQL native transport
-      - "7000:7000"    # Inter-node communication
-      - "7199:7199"    # JMX
+      # - "7000:7000"    # Inter-node communication
+      # - "7199:7199"    # JMX
     environment:
       - CASSANDRA_CLUSTER_NAME=DataFlowCluster
       - CASSANDRA_DC=datacenter1

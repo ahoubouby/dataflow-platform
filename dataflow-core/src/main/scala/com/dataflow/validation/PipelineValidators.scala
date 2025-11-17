@@ -84,7 +84,7 @@ object PipelineValidators {
    */
   implicit val pipelineConfigValidator = validator[PipelineConfig] {
     config =>
-      config.source is valid(sourceConfigValidator)
+      // config.source is valid(sourceConfigValidator)
       // Transforms can be empty (passthrough pipeline)
       config.transforms.each is valid(transformConfigValidator)
       config.sink is valid(sinkConfigValidator)
